@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>13. Cost telemetry & D1 — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">13 / 16 — Cost telemetry & D1</span><div class="spacer"></div><div class="pager"><a href="12-framework-self-upgrade.html">← Framework self-upgrade</a><a href="14-docs-and-living-docs.html">Docs & living-docs →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="current" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 13 of 16</div><h1>Cost telemetry & D1</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_13.png" alt="Detail diagram for Cost telemetry & D1"><figcaption>Figure 13 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The cost engine (<code>adws/cost/</code>) computes, formats, and persists the monetary/token cost of each ADW phase. It extracts Anthropic token usage from Claude CLI JSONL output, prices it against per-model pricing tables, detects divergence between locally-computed and CLI-reported cost, renders GitHub-comment cost tables in multiple currencies, and dual-writes per-phase/per-model <code>PhaseCostRecord</code> rows to a Cloudflare D1-backed Cost API Worker (<code>workers/cost-api/</code>). It is provider-pluggable in shape (anthropic is the only provider implemented).</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Define <code>PhaseCostRecord</code> (one record per model per phase) and convert orchestrator-supplied legacy usage maps into them (<code>createPhaseCostRecords</code>).</li>
+<li>Stream-parse Claude CLI JSONL stdout, accumulating per-turn estimates and capturing finalized per-model actuals + CLI-reported total cost (<code>AnthropicTokenUsageExtractor</code>).</li>
+<li>Hold Anthropic per-token pricing tables (opus/sonnet/haiku) and compute cost = Σ(usage[k] × pricing[k]) (<code>computeCost</code>, <code>pricing.ts</code>).</li>
+<li>Detect divergence between computed and CLI-reported cost beyond a 5% threshold (<code>checkDivergence</code>).</li>
+<li>Fetch live multi-currency exchange rates with retry/timeout/fallback (<code>exchangeRates.ts</code>).</li>
+<li>Render markdown cost tables, currency totals, divergence warnings, estimate-vs-actual tables, and a legacy <code>CostBreakdown</code> markdown table (<code>reporting/</code>, <code>costHelpers.ts</code>).</li>
+<li>POST records to the Cost API Worker, transforming camelCase → snake_case; failures are swallowed (<code>d1Client.ts</code>).</li>
+<li>Worker side: authenticate Bearer token, validate ingest payload, auto-resolve project slug, batch-insert <code>cost_records</code> + <code>token_usage</code> rows, and serve read aggregation endpoints.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/types.ts</code></td>
+<td><code>PhaseCostRecord</code>, <code>TokenUsageMap</code>/<code>PricingMap</code>/<code>ModelUsageMap</code>, legacy <code>LegacyModelUsage*</code>/<code>CostBreakdown</code>, <code>PhaseCostStatus</code>, <code>DivergenceResult</code>, <code>TokenUsageExtractor</code> iface, <code>createPhaseCostRecords</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/computation.ts</code></td>
+<td><code>computeCost</code>, <code>checkDivergence</code> (5% default threshold)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/providers/anthropic/extractor.ts</code></td>
+<td><code>AnthropicTokenUsageExtractor</code> — JSONL parse, per-turn estimate + finalized actuals</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/providers/anthropic/pricing.ts</code></td>
+<td>Per-token opus/sonnet/haiku tables, <code>getAnthropicPricing</code> (sonnet fallback)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/exchangeRates.ts</code></td>
+<td><code>fetchExchangeRates</code> (open.er-api.com), currency symbols, fallback rates</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/costHelpers.ts</code></td>
+<td>Legacy merge/total helpers, <code>buildCostBreakdown</code>, <code>formatCostBreakdownMarkdown</code>, <code>persistTokenCounts</code>, token-budget helpers (<code>computePrimaryModelTokens</code> etc.)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/reporting/commentFormatter.ts</code></td>
+<td><code>formatCostTable</code>, <code>formatDivergenceWarning</code>, <code>formatEstimateVsActual</code>, <code>formatCurrencyTotals</code>, <code>formatCostCommentSection</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/d1Client.ts</code></td>
+<td><code>transformToIngestPayload</code>, <code>postCostRecordsToD1</code> (HTTP dual-write)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/index.ts</code></td>
+<td>Barrel; renames legacy types (<code>ModelUsage</code>/<code>ModelUsageMap</code>) for backward compat</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>workers/cost-api/src/{index,auth,ingest,queries,cors,types}.ts</code></td>
+<td>Cloudflare Worker: router, Bearer auth, ingest, read APIs</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>workers/cost-api/src/schema.sql</code>, <code>migrations/0001_initial.sql</code></td>
+<td>D1 schema: <code>projects</code>, <code>cost_records</code>, <code>token_usage</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>workers/cost-api/wrangler.toml</code></td>
+<td>Worker config: route <code>costs.paysdoc.nl/*</code>, EU-jurisdiction D1 <code>adw-costs</code>, secrets-store <code>COST_API_TOKEN</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/cost/__tests__/</code>, <code>workers/cost-api/test/</code></td>
+<td>Vitest unit tests</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ol>
+<li><strong>Extraction (during phase):</strong> the phase runner feeds CLI stdout chunks to <code>AnthropicTokenUsageExtractor.onChunk</code>. The extractor line-buffers, parses each JSON line, and:
+   - <code>assistant</code> messages: accumulate accurate <code>input_tokens</code>/<code>cache_creation_input_tokens</code>/<code>cache_read_input_tokens</code> per model, plus an estimated <code>output</code> from text content (~4 chars/token); dedupes by <code>message.id</code>; falls back to a <code>modelHint</code> then <code>'unknown'</code> for the model key.
+   - <code>result</code> message: snapshots the pre-finalization estimate, records <code>total_cost_usd</code> as <code>reportedCostUsd</code>, replaces per-model usage with the actual <code>modelUsage</code> (camelCase→snake_case via <code>toTokenUsageMap</code>), and marks finalized.</li>
+<li><strong>Record creation:</strong> each phase (<code>adws/phases/*.ts</code>) calls <code>createPhaseCostRecords</code> with a legacy <code>LegacyModelUsageMap</code> (camelCase from orchestrators), producing one <code>PhaseCostRecord</code> per model. NOTE: currently <code>computedCostUsd === reportedCostUsd === usage.costUSD</code> (the CLI cost is copied; local <code>computeCost</code> is not yet wired into record creation). <code>estimatedTokens</code>/<code>actualTokens</code> are set <code>undefined</code>.</li>
+<li><strong>Reporting:</strong> <code>formatCostCommentSection</code> (gated on <code>SHOW_COST_IN_COMMENTS</code>) fetches rates for non-USD <code>COST_REPORT_CURRENCIES</code>, builds a per-phase table, currency totals, a <code>&gt;5%</code> divergence blockquote (<code>checkDivergence</code>), and an estimate-vs-actual table when populated, wrapped in a <code>&lt;details&gt;</code> block.</li>
+<li><strong>Dual-write:</strong> <code>phaseRunner.ts:84</code> calls <code>postCostRecordsToD1({ project: repoName, repoUrl, records })</code>. The client skips silently if <code>COST_API_URL</code> is unset or records empty, transforms to snake_case (<code>contextResetCount → continuation_count</code>), and POSTs <code>COST_API_URL/api/cost</code> with <code>Authorization: Bearer COST_API_TOKEN</code>. All errors are caught and <code>log(..., 'warn')</code>-ed — D1 failures never crash the workflow.</li>
+<li><strong>Worker ingest:</strong> validates payload, <code>resolveProject</code> does <code>INSERT OR IGNORE</code> + <code>SELECT</code> on <code>projects.slug</code> (auto-create, concurrency-safe), batch-inserts <code>cost_records</code> (RETURNING id), then a flattened batch of <code>token_usage</code> rows (one per token type). Returns <code>201 {inserted}</code>.</li>
+<li><strong>Worker reads:</strong> <code>GET /api/projects</code>, <code>/api/projects/:id/costs/breakdown</code> (SUM by model+provider, <code>COALESCE(reported, computed)</code>), <code>/api/projects/:id/costs/issues</code> (two queries to avoid join fan-out; phases ordered plan→build→test→review→document). All routes Bearer-auth via constant-time compare; CORS via <code>ALLOWED_ORIGINS</code>.</li>
+<li><strong>Exchange rates:</strong> <code>fetchExchangeRates</code> hits <code>open.er-api.com/v6/latest/USD</code>, 5s timeout, 2 retries (exponential backoff), caches <code>lastKnownRates</code>, falls back to hardcoded <code>FALLBACK_EUR_RATE = 0.92</code>.</li>
+</ol>
+<h2>Data Structures</h2>
+<ul>
+<li><strong><code>PhaseCostRecord</code></strong>: <code>{workflowId, issueNumber, phase, model, provider:'anthropic', tokenUsage:{input,output,cache_read,cache_write}, computedCostUsd, reportedCostUsd?, status, retryCount, contextResetCount, durationMs, timestamp, estimatedTokens?, actualTokens?}</code>.</li>
+<li><strong><code>TokenUsageMap</code>/<code>PricingMap</code></strong> = <code>Record&lt;string,number&gt;</code> (snake_case keys). <strong><code>ModelUsageMap</code></strong> = <code>Record&lt;model, TokenUsageMap&gt;</code>.</li>
+<li><strong>Legacy <code>LegacyModelUsage</code></strong> (camelCase: <code>inputTokens/outputTokens/cacheReadInputTokens/cacheCreationInputTokens/costUSD</code>) → <code>LegacyModelUsageMap</code>; <code>CostBreakdown</code> (<code>totalCostUsd</code>, <code>modelUsage</code>, <code>currencies[]</code>).</li>
+<li><strong><code>PhaseCostStatus</code></strong> = <code>success | partial | failed</code>.</li>
+<li><strong>D1 schema</strong>: <code>projects(id,slug UNIQUE,name,repo_url,created_at)</code>; <code>cost_records(...,project_id FK, computed_cost_usd, reported_cost_usd, status, retry_count, continuation_count, duration_ms, migrated)</code>; <code>token_usage(cost_record_id FK, token_type, count)</code>.</li>
+<li><strong><code>IngestPayload</code>/<code>IngestRecord</code></strong> (snake_case) — Worker contract, supports a <code>migrated</code> flag for historical CSV backfill.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>Barrel <code>adws/cost/index.ts</code>: <code>createPhaseCostRecords</code>, <code>PhaseCostStatus</code>, <code>computeCost</code>, <code>checkDivergence</code>, <code>AnthropicTokenUsageExtractor</code>, <code>ANTHROPIC_PRICING</code>/<code>getAnthropicPricing</code>, <code>fetchExchangeRates</code>/<code>CURRENCY_SYMBOLS</code>, <code>postCostRecordsToD1</code>, reporting formatters, legacy helpers (<code>mergeModelUsageMaps</code>, <code>buildCostBreakdown</code>, <code>formatCostBreakdownMarkdown</code>, <code>persistTokenCounts</code>, <code>computeTotalTokens</code>/<code>computeDisplayTokens</code>/<code>computePrimaryModelTokens</code>).</li>
+<li>Worker HTTP: <code>POST /api/cost</code>, <code>GET /api/projects</code>, <code>GET /api/projects/:id/costs/{breakdown,issues}</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><strong>Config &amp; Environment (1)</strong>: <code>COST_API_URL</code>, <code>COST_API_TOKEN</code>, <code>SHOW_COST_IN_COMMENTS</code>, <code>COST_REPORT_CURRENCIES</code> (<code>core/environment.ts</code>, <code>core/config.ts</code>).</li>
+<li><strong>State &amp; ADW ID (2)</strong>: <code>AgentStateManager.read/writeState</code> in <code>persistTokenCounts</code>.</li>
+<li><code>core/utils.log</code>.</li>
+<li>External: ExchangeRate-API (<code>open.er-api.com</code>); Worker depends on Cloudflare D1 + Secrets Store.</li>
+<li>Downstream (depended on by):</li>
+<li><strong>Phase runner &amp; cost-tracking composition (5)</strong>: <code>phaseRunner.ts</code> drives the extractor and calls <code>postCostRecordsToD1</code>.</li>
+<li><strong>Phases &amp; orchestrators (7)</strong>: every <code>adws/phases/*.ts</code> calls <code>createPhaseCostRecords</code>; <code>buildPhase</code> uses <code>computeDisplayTokens</code>/<code>computePrimaryModelTokens</code> for token-budget limits.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1 </a>Config &amp; Environment</td>
+<td>in</td>
+<td><code>COST_API_URL/TOKEN</code>, <code>SHOW_COST_IN_COMMENTS</code>, <code>COST_REPORT_CURRENCIES</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2 </a>State &amp; ADW ID</td>
+<td>in/out</td>
+<td><code>workflowId</code>(adwId) on records; <code>persistTokenCounts</code> writes <code>state.json</code> metadata</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4 </a>Agent execution</td>
+<td>in</td>
+<td>raw Claude CLI JSONL stdout chunks fed to the extractor</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">5 </a>Phase runner &amp; cost composition</td>
+<td>out</td>
+<td>extractor lifecycle + <code>postCostRecordsToD1</code> invocation at <code>phaseRunner.ts:84</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7 </a>Phases &amp; orchestrators</td>
+<td>in/out</td>
+<td>phases supply legacy usage maps to <code>createPhaseCostRecords</code>; receive token-budget totals; comment formatters posted to GitHub</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="16-supply-chain.html" title="16. Supply-chain">16 </a>Supply-chain</td>
+<td>n/a</td>
+<td>Worker bundled deps (<code>itty-router</code>, <code>miniflare</code> for tests)</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li><strong>Local computed cost not independently calculated.</strong> <code>specs/prd/d1-cost-database.md</code> frames <code>computed_cost_usd</code> (local pricing) vs <code>reported_cost_usd</code> (CLI) as distinct; in code <code>createPhaseCostRecords</code> copies CLI <code>costUSD</code> into BOTH fields, so divergence detection is effectively a no-op for ingested records. <code>computeCost</code>/<code>pricing.ts</code> exist but are not wired into record creation. <code>types.ts</code> comments acknowledge this ("equals reportedCostUsd until local computation is implemented").</li>
+<li><strong>Estimate-vs-actual unwired.</strong> <code>estimatedTokens</code>/<code>actualTokens</code> are always <code>undefined</code> from <code>createPhaseCostRecords</code>, so <code>formatEstimateVsActual</code> never renders, despite the extractor capturing <code>getEstimatedUsage()</code>.</li>
+<li><strong>Pricing table staleness.</strong> <code>ANTHROPIC_PRICING</code> keys hardcode <code>claude-opus-4-6</code>, <code>claude-sonnet-4-5-20250929</code>, <code>claude-haiku-4-5-20251001</code>; unknown models silently fall back to sonnet pricing.</li>
+<li>Otherwise schema, dual-write, auth (Bearer + constant-time), and EU-jurisdiction D1 match the PRD.</li>
+</ul><nav class="footer-pager"><a href="12-framework-self-upgrade.html"><div class="dir">← Previous · 12</div><div class="ttl">Framework self-upgrade</div></a><a class="next" href="14-docs-and-living-docs.html"><div class="dir">Next · 14 →</div><div class="ttl">Docs & living-docs</div></a></nav>
+</main>
+</div>
+</body>
+</html>

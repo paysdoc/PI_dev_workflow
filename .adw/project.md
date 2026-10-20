@@ -1,0 +1,38 @@
+# ADW Project Configuration
+
+## Project Overview
+PI Dev Workflow (an agentic developer workflow, or ADW) is a TypeScript/Bun automation system that integrates GitHub issues with Claude Code CLI to classify issues, generate plans, implement solutions, and create pull requests. The `adws/` directory contains the workflow orchestrators, agents, and supporting modules.
+
+## Relevant Files
+- `README.md` - Contains the project overview and instructions.
+- `.adw/coding_guidelines.md` - Coding guidelines that must be followed if present (fall back to `guidelines/coding_guidelines.md` for older repos; may not exist in all repos).
+- `adws/**` - Contains the AI Developer Workflow (ADW) orchestrators, agents, and supporting modules.
+- `adws/core/**` - Configuration, state management, cost tracking, token management.
+- `adws/agents/**` - Claude Code CLI agent runners (plan, build, test, review, etc.).
+- `adws/phases/**` - Workflow phase implementations.
+- `adws/forge/**` - ADW-application helpers built on top of the forge provider ports (comment formatting, HITL notifications, label provisioning).
+- `adws/vcs/**` - VCS-agnostic git and worktree operations (branch, commit, worktree management).
+- `@paysdoc/devplatform` (npm dependency) - The git core (`GitContext`) and the pluggable IssueTracker/CodeHost forge adapters; consumed via its `.`, `./providers`, and `./git` entry points, not an in-repo directory.
+- `adws/triggers/**` - Cron and webhook automation triggers.
+- `adws/types/**` - Shared TypeScript types.
+- `adws/r2/**` - Cloudflare R2 upload module (R2 client, bucket management, upload service).
+- `adws/core/projectConfig.ts` - Loads and exposes `.adw/project.md` config values (including application type).
+- `adws/phases/workflowCompletion.ts` - Workflow completion/error handling; screenshot upload integration point.
+- `.claude/commands/**` - Slash command prompt files.
+- `.adw/**` - Project configuration files read by planners.
+  - `.adw/scenarios.md` - BDD scenario configuration (scenario directory, run-by-tag command, regression scenarios command)
+
+## Framework Notes
+This is a TypeScript/Bun automation project. The `adws/` directory contains standalone TypeScript orchestrator scripts that run with `bunx tsx`. There is no web UI — ADW is a pure CLI automation system.
+
+## Library Install Command
+bun add <package>
+
+## Script Execution
+bunx tsx <script_name>
+
+## Application Type
+cli
+
+## Agent Guardrails
+This repo already had its own `.claude/settings.json` (custom permissions allow/deny list and PreToolUse/PostToolUse/Notification/Stop/SubagentStop hooks). ADW left it untouched and did not apply the starter guardrails template — skip-if-exists is mandatory, so the file was neither read, merged into, nor overwritten.

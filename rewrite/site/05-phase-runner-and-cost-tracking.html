@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>05. Phase runner & cost-tracking composition — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">05 / 16 — Phase runner & cost-tracking composition</span><div class="spacer"></div><div class="pager"><a href="04-agent-execution.html">← Agent execution</a><a href="06-provider-abstraction.html">Provider abstraction →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="current" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 05 of 16</div><h1>Phase runner & cost-tracking composition</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_5.png" alt="Detail diagram for Phase runner & cost-tracking composition"><figcaption>Figure 5 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The composition glue that wraps each workflow phase: it routes a slash command to a model tier and reasoning effort, applies a per-phase watchdog timeout, runs a generic retry-with-resolution loop where applicable, and threads per-phase cost/model-usage back into running totals. The <code>CostTracker</code> + <code>runPhase</code> pair captures the bookkeeping every composite orchestrator would otherwise repeat after each phase, so orchestrators only list which phases to run. This subsystem owns the <em>seam</em> that captures cost from agent runs and commits it; it does not compute cost or talk to D1 internals (<a class="xref" href="13-cost-telemetry-and-d1.html" title="<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry & D1">subsystem 13</a>).</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Accumulate <code>costUsd</code> and <code>modelUsage</code> across phases into running totals (<code>CostTracker.accumulate</code>).</li>
+<li>Persist token counts to the orchestrator state file and optionally update the live running-token display (<code>CostTracker.persist</code>).</li>
+<li>Forward per-phase <code>PhaseCostRecord[]</code> to D1, swallowing errors so cost failures never abort a workflow (<code>CostTracker.commit</code>).</li>
+<li>Run a single phase (<code>runPhase</code>) or a sequence/parallel set of phases (<code>runPhasesSequential</code> / <code>runPhasesParallel</code>), including skip-on-resume, per-phase status writes to top-level state, and rate-limit / timeout handling.</li>
+<li>Route each slash command to a <code>ModelTier</code> and <code>ReasoningEffort</code>, with a cost-optimized "fast/cheap" variant selected by <code>/fast</code> or <code>/cheap</code> keywords in the issue body (<code>modelRouting.ts</code>).</li>
+<li>Resolve the per-phase agent watchdog timeout from env var, static map, or default (<code>agentTimeouts.ts</code>).</li>
+<li>Provide a reusable retry loop (<code>retryWithResolution</code>) that runs an agent, extracts failures, resolves them, retries up to <code>maxRetries</code>, and handles context-compaction resets separately (<code>retryOrchestrator.ts</code>).</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/phaseRunner.ts</code></td>
+<td><code>CostTracker</code> class, <code>runPhase</code>/<code>runPhasesSequential</code>/<code>runPhasesParallel</code>, <code>PhaseResult</code>/<code>PhaseFn</code> types, completed-phase recording, rate-limit/timeout dispatch.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/retryOrchestrator.ts</code></td>
+<td>Generic <code>retryWithResolution</code> loop, <code>trackCost</code>, <code>RetryResult</code>/<code>RetryConfig</code>/<code>AgentRunResult</code> types, context-reset handling.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/modelRouting.ts</code></td>
+<td>Slash-command → model-tier and → reasoning-effort maps (default + fast), <code>getModelForCommand</code>/<code>getEffortForCommand</code>/<code>isFastMode</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/agentTimeouts.ts</code></td>
+<td>Per-phase watchdog timeout map and <code>getAgentTimeoutForPhase</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/orchestratorLib.ts</code></td>
+<td>Stage execution gating (<code>shouldExecuteStage</code>/<code>getNextStage</code>), uncommitted-change check, orchestrator-name↔script mapping.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/__tests__/phaseRunner.test.ts</code></td>
+<td>Unit coverage for accumulation, skip-on-resume, status writes, rate-limit dispatch.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/commandAgent.ts</code></td>
+<td>Consumer: applies model/effort routing before invoking the agent.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/claudeAgent.ts</code></td>
+<td>Consumer: applies <code>getAgentTimeoutForPhase</code> watchdog, throws <code>AgentTimeoutError</code>/<code>RateLimitError</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ul>
+<li><strong><code>runPhase</code></strong>: (1) Skip-on-resume — if <code>phaseName</code> is set and the top-level state's <code>phases[phaseName]</code> exists, its status is authoritative (<code>completed</code> ⇒ skip returning a zero <code>PhaseResult</code>; <code>failed</code>/<code>running</code> ⇒ do NOT skip); if no phases-map entry exists, fall back to the legacy <code>config.completedPhases</code> string array. (2) Write <code>{status:'running', startedAt}</code> and <code>workflowStage='&lt;phase&gt;_running'</code> to top-level state. (3) Run the phase fn; on success <code>accumulate</code> → <code>persist</code> → <code>commit</code>, then write <code>completed</code> status and <code>recordCompletedPhase</code> (appends to <code>metadata.completedPhases</code> without clobbering). (4) On error: write <code>failed</code> status; if <code>AgentTimeoutError</code> (also records <code>failureReason:'agent_timeout'</code> and lazily calls <code>handlePhaseTimeout</code>); if <code>RateLimitError</code>, lazily call <code>handleRateLimitPause(config, phaseName, 'rate_limited', totalCostUsd, totalModelUsage)</code>; always re-throw.</li>
+<li><strong><code>runPhasesParallel</code></strong>: runs fns concurrently via <code>Promise.all</code>, merges cost/usage/records in one shot, then a single <code>accumulate</code>/<code>persist</code>/<code>commit</code>. Does not write per-phase status (no <code>phaseName</code>).</li>
+<li><strong>Cost capture seam</strong>: each phase fn returns <code>{costUsd, modelUsage, phaseCostRecords?}</code> derived from the agent's <code>AgentResult.totalCostUsd</code>/<code>modelUsage</code> (built by phases via <code>createPhaseCostRecords</code>). <code>CostTracker.commit</code> posts records to D1 via <code>postCostRecordsToD1</code>, deriving <code>project</code> from <code>config.targetRepo?.repo ?? config.repoContext?.repoId.repo ?? 'unknown'</code> and <code>repoUrl</code> from <code>GITHUB_REPO_URL</code>; errors are logged and swallowed.</li>
+<li><strong>Model/effort routing</strong>: <code>commandAgent.runCommandAgent</code> calls <code>getModelForCommand</code>/<code>getEffortForCommand</code> with <code>issueBody</code>. <code>isFastMode</code> (regex <code>/fast\b|/cheap\b</code>) picks <code>*_FAST</code> maps. Haiku commands carry <code>undefined</code> effort (no <code>--effort</code> flag).</li>
+<li><strong>Timeout watchdog</strong>: <code>claudeAgent.runClaudeAgentWithCommand</code> resolves <code>getAgentTimeoutForPhase(phaseName)</code> (env <code>AGENT_PHASE_TIMEOUT_&lt;PHASE&gt;</code> → <code>AGENT_PHASE_TIMEOUT_MAP</code> → <code>AGENT_DEFAULT_TIMEOUT_MS</code>, default 1,800,000 ms). A <code>setTimeout</code> watchdog kills the process group and a <code>watchdogFired</code> guard throws <code>AgentTimeoutError</code>; the same setup is mirrored on the ENOENT retry path.</li>
+<li><strong>Generic retry</strong>: <code>retryWithResolution</code> loops up to <code>maxRetries</code>: run → <code>trackCost</code> → if compaction detected, increment a separate <code>contextResetCount</code> (capped at <code>maxContextResets</code>/<code>MAX_CONTEXT_RESETS</code>, throws when exceeded) and <code>continue</code> without incrementing the retry count; on agent failure increment retry; on pass return; otherwise <code>extractFailures</code>, <code>resolveFailures</code>, <code>trackCost</code> again, repeat. Each attempt appends to agent state log.</li>
+</ul>
+<h2>Data Structures</h2>
+<ul>
+<li><code>PhaseResult { costUsd: number; modelUsage: ModelUsageMap; phaseCostRecords?: PhaseCostRecord[] }</code> — return contract every phase fn satisfies.</li>
+<li><code>PhaseFn = (config: WorkflowConfig) =&gt; Promise&lt;PhaseResult&gt;</code>.</li>
+<li><code>CostTracker</code> (private <code>_totalCostUsd</code>, <code>_totalModelUsage</code>; getters; <code>accumulate</code>/<code>persist</code>/<code>commit</code>).</li>
+<li><code>RetryResult&lt;TFailure&gt; { passed; costUsd; totalRetries; failures; modelUsage; contextResetCount }</code>.</li>
+<li><code>RetryConfig&lt;TRunResult, TFailure&gt;</code> { <code>maxRetries</code>, <code>statePath</code>, <code>label</code>, <code>run</code>, <code>isPassed</code>, <code>extractFailures</code>, <code>resolveFailures</code>, optional <code>onRetryFailed</code>/<code>onCompactionDetected</code>/<code>maxContextResets</code> }.</li>
+<li><code>AgentRunResult { success; totalCostUsd?; modelUsage?; compactionDetected? }</code>.</li>
+<li>Routing maps: <code>SLASH_COMMAND_MODEL_MAP(_FAST)</code>, <code>SLASH_COMMAND_EFFORT_MAP(_FAST)</code>; <code>ModelTier='opus'|'sonnet'|'haiku'</code>, <code>ReasoningEffort='low'|'medium'|'high'|'xhigh'|'max'</code>.</li>
+<li><code>AGENT_PHASE_TIMEOUT_MAP: Record&lt;string, number&gt;</code> (seeded with <code>'step-def'</code>).</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li><code>class CostTracker</code> — <code>totalCostUsd</code>, <code>totalModelUsage</code>, <code>accumulate(result)</code>, <code>persist(config)</code>, <code>commit(config, records)</code>.</li>
+<li><code>runPhase(config, tracker, fn, phaseName?)</code>, <code>runPhasesSequential(config, tracker, fns)</code>, <code>runPhasesParallel(config, tracker, fns)</code>.</li>
+<li><code>retryWithResolution(config)</code>, <code>trackCost(result, state, statePath)</code>, <code>initAgentState(statePath, agentName)</code>.</li>
+<li><code>getModelForCommand(command, issueBody?)</code>, <code>getEffortForCommand(command, issueBody?)</code>, <code>isFastMode(issueBody?)</code>.</li>
+<li><code>getAgentTimeoutForPhase(phaseName?)</code>; re-exported <code>AGENT_DEFAULT_TIMEOUT_MS</code>, <code>AGENT_PHASE_TIMEOUT_MAP</code>.</li>
+<li><code>shouldExecuteStage</code>, <code>getNextStage</code>, <code>hasUncommittedChanges</code>, <code>deriveOrchestratorScript</code>, <code>orchestratorNamesForScript</code>.</li>
+<li>All of the above are re-exported through <code>adws/core/index.ts</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><a class="xref" href="02-state-and-adw-id.html" title="<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">02. </a>State & ADW ID">Subsystem 2</a> (State &amp; ADW ID) — <code>AgentStateManager</code> for top-level/orchestrator state read/write, <code>config.adwId</code>.</li>
+<li><a class="xref" href="13-cost-telemetry-and-d1.html" title="<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry & D1">Subsystem 13</a> (Cost telemetry &amp; D1) — <code>mergeModelUsageMaps</code>, <code>persistTokenCounts</code>, <code>computeDisplayTokens</code>, <code>createPhaseCostRecords</code>, <code>postCostRecordsToD1</code>, <code>PhaseCostRecord</code>/<code>ModelUsageMap</code> types.</li>
+<li><a class="xref" href="01-config-and-environment.html" title="<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">01. </a>Config & Environment">Subsystem 1</a> (Config &amp; Environment) — <code>RUNNING_TOKENS</code>, <code>MAX_CONTEXT_RESETS</code>, <code>AGENT_DEFAULT_TIMEOUT_MS</code>, env overrides.</li>
+<li><a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">Subsystem 7</a> (Phases &amp; orchestrators) — <code>WorkflowConfig</code> type (<code>adws/phases/workflowInit</code>); lazy imports <code>handleRateLimitPause</code>/<code>handlePhaseTimeout</code> from <code>workflowCompletion</code> (lazy to avoid circular deps).</li>
+<li><code>RateLimitError</code>/<code>AgentTimeoutError</code> from <code>types/agentTypes</code>.</li>
+<li>Downstream (depended on by):</li>
+<li><a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">Subsystem 7</a> (Phases &amp; orchestrators) — every composite orchestrator (<code>adwSdlc</code>, <code>adwBuild</code>, <code>adwPlan</code>, etc.) wraps phases in <code>runPhase</code>/<code>CostTracker</code>.</li>
+<li><a class="xref" href="04-agent-execution.html" title="<a class="xref" href="04-agent-execution.html" title="04. Agent execution">04. </a>Agent execution">Subsystem 4</a> (Agent execution) — <code>commandAgent</code>/<code>claudeAgent</code> consume model/effort routing and per-phase timeouts.</li>
+<li><a class="xref" href="08-bdd-scenario-subsystem.html" title="<a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">08. </a>BDD / scenario subsystem">Subsystem 8</a> (BDD/scenario) — test/scenario retry loops use <code>retryWithResolution</code>.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</td>
+<td>→ (out)</td>
+<td>Supplies model tier, reasoning effort, and per-phase watchdog timeout to the agent runner; receives <code>AgentResult</code> (cost/model usage) and <code>AgentTimeoutError</code>/<code>RateLimitError</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>↔</td>
+<td>Receives <code>PhaseFn</code>s and <code>WorkflowConfig</code>; returns <code>PhaseResult</code>; lazily invokes <code>handleRateLimitPause</code>/<code>handlePhaseTimeout</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry &amp; D1</td>
+<td>→ (out)</td>
+<td>Merges/persists token counts; posts <code>PhaseCostRecord[]</code> via <code>postCostRecordsToD1</code> (errors swallowed).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</td>
+<td>↔</td>
+<td>Reads/writes top-level phase status (<code>running</code>/<code>completed</code>/<code>failed</code>), <code>workflowStage</code>, and <code>metadata.completedPhases</code>; reads <code>adwId</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</td>
+<td>→ (in)</td>
+<td><code>RUNNING_TOKENS</code>, <code>MAX_CONTEXT_RESETS</code>, timeout defaults, <code>GITHUB_REPO_URL</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">8. </a>BDD / scenario subsystem</td>
+<td>→ (out)</td>
+<td><code>retryWithResolution</code> drives test/scenario fix-retry loops.</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li>The orienting PRD (<code>specs/prd/d1-cost-database.md</code>) describes cost capture as POSTing <code>PhaseCostRecord[]</code> to a Worker from "phase cost commit logic". As-is, that commit point is <code>CostTracker.commit</code> calling <code>postCostRecordsToD1</code>, matching the PRD's intent. No divergence observed within this subsystem's scope (cost computation, snake_case transform, and CSV-removal details belong to <a class="xref" href="13-cost-telemetry-and-d1.html" title="<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry & D1">subsystem 13</a>).</li>
+</ul><nav class="footer-pager"><a href="04-agent-execution.html"><div class="dir">← Previous · 04</div><div class="ttl">Agent execution</div></a><a class="next" href="06-provider-abstraction.html"><div class="dir">Next · 06 →</div><div class="ttl">Provider abstraction</div></a></nav>
+</main>
+</div>
+</body>
+</html>

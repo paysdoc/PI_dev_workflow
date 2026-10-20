@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>10. Triggers — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">10 / 16 — Triggers</span><div class="spacer"></div><div class="pager"><a href="09-coordination-kernel.html">← Coordination kernel</a><a href="11-automerge-hitl-resilience.html">Auto-merge / HITL + resilience queues →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="current" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 10 of 16</div><h1>Triggers</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_10.png" alt="Detail diagram for Triggers"><figcaption>Figure 10 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The two automation entry points that turn external GitHub activity into spawned ADW orchestrator processes. The <strong>cron trigger</strong> (<code>trigger_cron.ts</code>) is a periodic backlog sweeper that polls open issues/PRs and recovers stalled work; the <strong>webhook trigger</strong> (<code>trigger_webhook.ts</code>) is a real-time HTTP gatekeeper that reacts to GitHub webhook events. Both resolve issue eligibility, run the takeover decision, and dispatch detached orchestrator child processes; neither owns the coordination primitives themselves (<a class="xref" href="09-coordination-kernel.html" title="<a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">09. </a>Coordination kernel">subsystem 9</a>) — they <em>call</em> them.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li><strong>Cron polling loop</strong> (<code>POLL_INTERVAL_MS = 20s</code>, PR poll <code>60s</code>): fetch open issues via <code>gh issue list</code>, filter for eligibility, sort oldest-first, dispatch.</li>
+<li><strong>Webhook HTTP server</strong>: <code>POST /webhook</code> (event dispatch) and <code>GET /health</code> (health checks); routes <code>issues</code>, <code>issue_comment</code>, <code>pull_request</code>, <code>pull_request_review</code>, <code>pull_request_review_comment</code> events.</li>
+<li><strong>HMAC-SHA256 signature validation</strong> of raw webhook bodies (constant-time compare).</li>
+<li><strong>Issue eligibility/action resolution</strong>: dependency + concurrency checks, grace period, stage classification (<code>spawn</code> vs <code>merge</code>), region-overlap serialization, label-recovery routing, <code>## Cancel</code> / <code>## Retry</code> directive handling.</li>
+<li><strong>Takeover dispatch</strong>: call <code>evaluateCandidate</code> before every standard spawn; act on <code>spawn_fresh</code> / <code>take_over_adwId</code> / <code>defer_live_holder</code> / <code>skip_terminal</code> / <code>escalate_human_gated</code>.</li>
+<li><strong>Spawn dispatch</strong>: detached <code>bunx tsx adws/&lt;orchestrator&gt;.tsx</code> children, cwd-pinned to <code>REPO_ROOT</code>.</li>
+<li><strong>Per-cycle maintenance</strong> wired into the cron loop: hung-orchestrator sweep, pause-queue scan, auth-queue scan, dev-server janitor, per-issue scenario sweep, auth-gate tick.</li>
+<li><strong>Cloudflare tunnel lifecycle</strong> (<code>cloudflareTunnel.tsx</code>): create/reuse tunnel, route DNS, run <code>cloudflared</code>, forward SIGINT/SIGTERM.</li>
+<li><strong>Shutdown</strong> (<code>trigger_shutdown.ts</code>): SIGTERM all cron PID-file processes and webhook server processes.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/trigger_cron.ts</code></td>
+<td>Cron backlog sweeper; poll loop, candidate dispatch, maintenance sweeps, hung-detector.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/trigger_webhook.ts</code></td>
+<td>HTTP webhook server; event routing, signature check, spawn dispatch.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/cronIssueFilter.ts</code></td>
+<td>Pure <code>evaluateIssue</code> / <code>filterEligibleIssues</code>: stage→action resolution, grace period, dedup, region-overlap pass.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/webhookHandlers.ts</code></td>
+<td><code>handlePullRequestEvent</code> (PR-closed → <code>discarded</code> + close issue), <code>handleIssueClosedEvent</code> (worktree/branch cleanup, dependency unblock).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/webhookSignature.ts</code></td>
+<td><code>validateWebhookSignature</code> — HMAC-SHA256 constant-time check.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/webhookGatekeeper.ts</code></td>
+<td><code>classifyAndSpawnWorkflow</code>, <code>spawnDetached</code>, <code>ensureCronProcess</code>, <code>closeAbandonedDependents</code>, dependency unblock.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/issueOpenedRouter.ts</code></td>
+<td><code>issues.opened</code> label routing (opt-out / conflict / classified / infer).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/issueEligibility.ts</code></td>
+<td><code>checkIssueEligibility</code> — open-dependencies + concurrency-limit gate.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/cronProcessGuard.ts</code></td>
+<td>PID-file single-cron-per-repo guard (<code>registerAndGuard</code>, <code>isCronAliveForRepo</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/cronStageResolver.ts</code></td>
+<td>Resolves workflow stage / adwId / last-activity from issue comments + state.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/cronRepoResolver.ts</code> / <code>webhookRepoResolver.ts</code></td>
+<td>Resolve <code>RepoInfo</code> + <code>--target-repo</code> args from CLI argv / webhook payload.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/cronLabelEligibility.ts</code></td>
+<td>Label-recovery eligibility for fresh issues with <code>adw:&lt;type&gt;</code> labels.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/cloudflareTunnel.tsx</code></td>
+<td>Cloudflare tunnel create/route/run lifecycle for exposing the webhook server.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/trigger_shutdown.ts</code></td>
+<td>Terminates all cron + webhook trigger processes.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/scanAuthQueue.ts</code></td>
+<td>Resumes auth-paused workflows once login is restored (called per cron cycle).</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<p><strong>Cron cycle (<code>checkAndTrigger</code>)</strong>: increment <code>cycleCount</code>; if the auth gate is set, run <code>handleAuthGateTick</code> (SIGTERM live orchestrators → <code>paused_auth</code>, or clear gate + <code>scanAuthQueue</code> on re-login) and return early. Otherwise run <code>scanPauseQueue</code>, <code>scanAuthQueue</code>, and modulo-gated <code>runHungDetectorSweep</code> / <code>runJanitorPass</code> / <code>runPerIssueScenarioSweep</code>. Fetch open issues; scan latest comments for <code>## Cancel</code> (→ <code>handleCancelDirective</code>) and <code>## Retry</code> (→ <code>handleRetryDirective</code>). Call <code>filterEligibleIssues</code> → eligible candidates (<code>action: 'spawn'|'merge'</code>, optional <code>adwId</code>) + overlap deferrals. For each candidate: <code>merge</code> → <code>shouldDispatchMerge</code> gate then spawn <code>adwMerge.tsx</code>; <code>spawn</code> → <code>checkIssueEligibility</code>, then <code>evaluateCandidate</code> (takeover), branching on its <code>kind</code> to spawn <code>adwSdlc.tsx</code> (fresh or takeover adwId) via <code>classifyAndSpawnWorkflow</code> / <code>spawnDetached</code>. <code>AuthRequiredError</code> thrown during spawn → <code>writeAuthGate</code> and abort the cycle.</p>
+<p><strong>Cron PR loop (<code>checkPRsForReviewComments</code>)</strong>: poll open PRs, spawn <code>adwPrReview.tsx</code> for any with unaddressed review comments (in-memory <code>processedPRs</code> dedup).</p>
+<p><strong>Cron startup guard</strong>: only runs as entry script (argv check); <code>assertCwdIsRepoRoot</code>, <code>registerAndGuard(repoKey, pid)</code> — exits if another cron already owns the repo.</p>
+<p><strong>Webhook request flow</strong>: read raw body → if <code>GITHUB_WEBHOOK_SECRET</code> set, <code>validateWebhookSignature</code> (401 on mismatch) → JSON parse (400 on failure) → <code>resolveWebhookRepo</code> (build per-event immutable <code>GitContext</code>, <code>ensureCronProcess</code>). Dispatch by <code>x-github-event</code>:
+- <code>pull_request_review_comment</code> / <code>pull_request_review</code>: cooldown-gated (<code>PR_REVIEW_COOLDOWN_MS = 60s</code>), spawn <code>adwPrReview.tsx</code> (approved reviews ignored; merge is cron's job).
+- <code>issue_comment</code>: <code>## Cancel</code>/<code>## Retry</code> directives, else <code>isActionableComment</code> → cooldown + <code>isAdwRunningForIssue</code> + <code>checkIssueEligibility</code> → <code>classifyAndSpawnWorkflow</code>.
+- <code>pull_request</code> <code>closed</code>: <code>handlePullRequestEvent</code> (merged → ignore; closed-without-merge → write <code>discarded</code>, close linked issue).
+- <code>issues</code> <code>closed</code>: <code>handleIssueClosedEvent</code> (worktree removal, remote-branch delete, abandoned/discarded → <code>closeAbandonedDependents</code>, else dependency unblock).
+- <code>issues</code> <code>opened</code>: <code>routeIssueOpened</code> (opt-out / multi-label conflict refusal / classified / infer-and-persist-label).
+- Most issue/PR paths short-circuit to <code>200 {status:'ignored', reason:'auth_gate_set'}</code> while the auth gate is set.</p>
+<p><strong>Spawn dispatch</strong>: <code>spawnDetached</code> / direct <code>spawn</code> with <code>detached:true</code>, <code>stdio:'ignore'|'inherit'</code>, <code>cwd: REPO_ROOT</code>, <code>child.unref()</code>. Relative <code>adws/*.tsx</code> args are resolved against <code>REPO_ROOT</code>.</p>
+<p><strong>Signature validation</strong>: requires <code>sha256=</code> prefix, recomputes HMAC over raw body, length check then <code>timingSafeEqual</code>.</p>
+<p><strong>Cloudflare tunnel</strong> (separate process): <code>parseArgs</code> (<code>--name</code>/<code>--hostname</code>/<code>--port</code>/<code>--skip-create</code>), check <code>cloudflared</code> installed, create/reuse tunnel, <code>route dns</code>, <code>spawn('cloudflared', ['tunnel','run',...])</code>, propagate exit code and signals.</p>
+<h2>Data Structures</h2>
+<ul>
+<li><code>RawIssue</code> (cron) / <code>CronIssue</code> (filter): number, title, body, comments, createdAt, updatedAt, labels.</li>
+<li><code>FilterResult</code> / <code>EligibleIssue</code>: <code>{ eligible, reason?, action?: 'spawn'|'merge', adwId? }</code>.</li>
+<li><code>ProcessedSets</code>: <code>{ spawns: ReadonlySet&lt;number&gt; }</code> — fresh-spawn boot-window dedup (gates only <code>stage === null</code>).</li>
+<li><code>OverlapDeferral</code>: <code>{ issueNumber, blockedBy, overlapPaths }</code>.</li>
+<li><code>EligibilityResult</code>: <code>{ eligible, reason?: 'open_dependencies'|'concurrency_limit', blockingIssues? }</code>.</li>
+<li><code>CandidateDecision</code> (consumed): <code>spawn_fresh | take_over_adwId | defer_live_holder | skip_terminal | escalate_human_gated</code>.</li>
+<li><code>SignatureValidationResult</code>: <code>{ valid, error? }</code>.</li>
+<li><code>IssueOpenedRoute</code> / <code>IssueOpenedOutcome</code>; <code>PrClosedDeps</code> / <code>IssueClosedDeps</code> (injectable webhook-handler deps).</li>
+<li><code>CronPidRecord</code> / <code>IssueSpawnLockRecord</code> (on-disk JSON under <code>agents/cron/</code> and <code>agents/spawn_locks/</code>).</li>
+<li>In-memory module state: <code>processedSpawns</code>, <code>processedPRs</code>, <code>cycleCount</code>, <code>recentPrReviewTriggers</code>, <code>recentIssueTriggers</code>, <code>cronSpawnedForRepo</code>.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>Cron: <code>runHungDetectorSweep(now, deps?)</code> (exported for tests); module side-effects gated by entry-script argv check.</li>
+<li>Webhook: HTTP <code>POST /webhook</code>, <code>GET /health</code>; re-exports <code>handlePullRequestEvent</code>, <code>handleIssueClosedEvent</code>, <code>extractIssueNumberFromBranch</code>, <code>classifyAndSpawnWorkflow</code>, <code>ensureCronProcess</code>, <code>shouldTriggerIssueWorkflow</code>.</li>
+<li>Filter: <code>evaluateIssue(...)</code>, <code>filterEligibleIssues(...)</code>, <code>resolveTouchedFilesFromBody(issue)</code> (all pure, injectable resolvers).</li>
+<li>Gatekeeper: <code>classifyAndSpawnWorkflow(...)</code>, <code>spawnDetached(command, args)</code>, <code>ensureCronProcess(...)</code>, <code>closeAbandonedDependents(...)</code>, <code>handleIssueClosedDependencyUnblock(...)</code>, <code>logDeferral(...)</code>.</li>
+<li>Signature: <code>validateWebhookSignature(rawBody, secret, signatureHeader)</code>.</li>
+<li>Router: <code>decideIssueOpenedRoute(reading)</code>, <code>extractPayloadLabelNames(issue)</code>, <code>routeIssueOpened(params, deps?)</code>.</li>
+<li>Eligibility: <code>checkIssueEligibility(issueNumber, issueBody, repoInfo)</code>.</li>
+<li>Process guard: <code>registerAndGuard(repoKey, ownPid)</code>, <code>isCronAliveForRepo(repoKey)</code>, <code>writeCronPid</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li><strong>Upstream (depends on):</strong></li>
+<li>Config &amp; Environment: <code>REPO_ROOT</code>, <code>LOGS_DIR</code>, <code>AGENTS_STATE_DIR</code>, <code>GRACE_PERIOD_MS</code>, interval/threshold constants, port helpers, <code>resolveClaudeCodePath</code>, <code>assertCwdIsRepoRoot</code>, <code>.env</code> load.</li>
+<li>GitContext: <code>buildLaunchGitContext</code>, per-event <code>GitContext</code>, <code>gitContextForSync</code> (worktree/branch ops).</li>
+<li>GitHub layer: <code>gh issue/pr list</code>, <code>getRepoInfo</code>, <code>fetchPRList</code>, <code>fetchIssueCommentsRest</code>, <code>closeIssue</code>, <code>commentOnIssue</code>, <code>isAdwRunningForIssue</code>, <code>activateGitHubAppAuth</code>, <code>refreshTokenIfNeeded</code>, label manager, <code>issueClassifier</code>.</li>
+<li>Coordination kernel (<a class="xref" href="09-coordination-kernel.html" title="<a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">09. </a>Coordination kernel">subsystem 9</a>): <code>evaluateCandidate</code>/<code>CandidateDecision</code>, <code>spawnGate</code> (acquire/release/read lock), <code>processLiveness</code>, <code>hungOrchestratorDetector</code>, <code>remoteReconcile</code>, <code>resumePolicy</code>, <code>cronStageResolver</code>, <code>cronProcessGuard</code>.</li>
+<li>Resilience/maintenance: <code>scanPauseQueue</code>, <code>scanAuthQueue</code>, <code>authGate</code>, <code>slackNotifier</code>, <code>devServerJanitor</code>, <code>perIssueScenarioSweep</code>, region-overlap modules, <code>mergeDispatchGate</code>, <code>cancelHandler</code>, <code>retryHandler</code>.</li>
+<li>State &amp; ADW ID: <code>AgentStateManager.read/writeTopLevelState</code>, <code>generateAdwId</code>.</li>
+<li><strong>Downstream (depended on by):</strong></li>
+<li>Phases &amp; orchestrators: spawned detached processes (<code>adwSdlc</code>, <code>adwMerge</code>, <code>adwPrReview</code>, <code>adwUpgrade</code>).</li>
+<li>Operators / external GitHub: the HTTP/cron surface that drives the whole pipeline.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">9. </a>Coordination kernel</td>
+<td>calls →</td>
+<td><code>evaluateCandidate</code>, <code>acquire/releaseIssueSpawnLock</code>, <code>processLiveness.isProcessLive</code>, <code>findHungOrchestrators</code>, <code>cronStageResolver</code>, <code>cronProcessGuard.registerAndGuard</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>spawns →</td>
+<td>detached <code>bunx tsx adws/adwSdlc/adwMerge/adwPrReview/adwUpgrade.tsx &lt;issue&gt; [adwId] [--target-repo …]</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</td>
+<td>reads ←</td>
+<td>constants, paths, env (<code>PORT</code>, <code>GITHUB_WEBHOOK_SECRET</code>), port allocation, cwd assertion</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</td>
+<td>calls →</td>
+<td><code>buildLaunchGitContext</code> per launch/event; <code>gitContextForSync</code> for worktree/branch ops</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</td>
+<td>reads/writes ↔</td>
+<td>top-level state (<code>discarded</code>/<code>abandoned</code>/<code>paused_auth</code> writes), <code>generateAdwId</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience queues</td>
+<td>calls →</td>
+<td><code>scanPauseQueue</code>, <code>scanAuthQueue</code>, <code>mergeDispatchGate</code>, <code>cancelHandler</code>, <code>retryHandler</code>, region-overlap deferral</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry / Slack</td>
+<td>calls →</td>
+<td><code>sendSlackDetectionNotification</code> / <code>sendSlackRecoveryNotification</code> on auth-gate transitions</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="14-docs-and-living-docs.html" title="14. Docs & living-docs">14. </a>Docs / <a class="xref" href="15-screenshots.html" title="15. Screenshots">15. </a>Screenshots</td>
+<td>none (indirect)</td>
+<td>only via spawned orchestrators</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="16-supply-chain.html" title="16. Supply-chain">16. </a>Supply-chain</td>
+<td>none direct</td>
+<td>—</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>External (GitHub / cloudflared)</td>
+<td>bidirectional</td>
+<td>webhook HTTP in, <code>gh</code>/<code>ps</code> shell out, Cloudflare tunnel</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<p>The implementation has advanced <strong>beyond</strong> <code>orchestrator-coordination-resilience.md</code>:
+- PRD's <code>takeoverHandler</code> decision set was <code>{spawn_fresh, take_over_adwId, defer_live_holder, skip_terminal}</code>; the code adds <strong><code>escalate_human_gated</code></strong> (resume-cap escalation, <code>#639</code>) and <code>skip_terminal</code> carries <code>paused</code>/<code>paused_auth</code> terminal stages. <code>cronIssueFilter</code> handles additional stages not in the PRD: <code>merge_blocked</code>, <code>human_gated</code>, <code>phase_timeout</code> (<code>#637</code>).
+- PRD limits cron-cycle work to the hung-orchestrator reclaim; the code wires in several more per-cycle sweeps not described in the PRD: auth-gate tick + Slack notification, <code>scanAuthQueue</code>, <code>runJanitorPass</code> (dev-server janitor), <code>runPerIssueScenarioSweep</code>, and a cross-issue <strong>region-overlap serialization</strong> pass.
+- Webhook <code>issues.opened</code> routing via <code>issueOpenedRouter</code> (opt-out / multi-label conflict refusal / label-classified / infer-and-persist) is richer than the PRD, which only addressed branch-name and <code>discarded</code> reclassification.
+- PRD said <code>adwPrReview</code> is out of scope for coordination; triggers still spawn it (cooldown/<code>processedPRs</code> dedup only), consistent with PRD's stated acceptance of its own dedup.
+- HMAC signature validation, Cloudflare tunnel, and <code>trigger_shutdown</code> are pre-existing trigger concerns not covered by this PRD.
+- No divergence observed in the <code>abandoned</code>→<code>discarded</code> split: webhook PR-closed writes <code>discarded</code> (per PRD §"webhookHandlers PR-closed path"); cron hung-sweep rewrites to <code>abandoned</code>.</p><nav class="footer-pager"><a href="09-coordination-kernel.html"><div class="dir">← Previous · 09</div><div class="ttl">Coordination kernel</div></a><a class="next" href="11-automerge-hitl-resilience.html"><div class="dir">Next · 11 →</div><div class="ttl">Auto-merge / HITL + resilience queues</div></a></nav>
+</main>
+</div>
+</body>
+</html>

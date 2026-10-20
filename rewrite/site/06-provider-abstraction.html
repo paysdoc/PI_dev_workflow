@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>06. Provider abstraction — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">06 / 16 — Provider abstraction</span><div class="spacer"></div><div class="pager"><a href="05-phase-runner-and-cost-tracking.html">← Phase runner & cost-tracking composition</a><a href="07-phases-and-orchestrators.html">Phases & orchestrators →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="current" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 06 of 16</div><h1>Provider abstraction</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_6.png" alt="Detail diagram for Provider abstraction"><figcaption>Figure 6 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>Provides a pluggable, platform-agnostic seam so ADW workflow phases never call GitHub/GitLab/Jira directly. Three interfaces — <code>IssueTracker</code>, <code>CodeHost</code>, <code>BoardManager</code> — are bundled into an immutable <code>RepoContext</code> resolved at workflow entry from <code>.adw/providers.md</code> (or explicit options). Beneath the provider layer sits a thin GitHub API wrapper (<code>adws/github/*</code>) of <code>gh</code>/REST/GraphQL helpers that delegate to GitContext; this layer is the legacy, GitHub-only path the providers wrap and that most callers still use directly.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Define the portability contract: <code>RepoIdentifier</code>, <code>Platform</code> enum, <code>Issue</code>/<code>IssueComment</code>, <code>PullRequest</code>/<code>ReviewComment</code>/<code>CreatePROptions</code>, <code>BoardStatus</code>/<code>BOARD_COLUMNS</code>, and the three provider interfaces.</li>
+<li>Resolve and validate a <code>RepoContext</code> (<code>createRepoContext</code>): validate repo id, working dir is a git repo, git <code>origin</code> matches the declared owner/repo, then resolve provider instances and <code>Object.freeze</code> the result.</li>
+<li>Load provider platform config from <code>.adw/providers.md</code> (<code>loadProviderConfig</code>) with GitHub defaults.</li>
+<li>GitHub implementations (<code>IssueTracker</code>, <code>CodeHost</code>, <code>BoardManager</code>) that wrap <code>issueApi</code>/<code>prApi</code>/<code>projectBoardApi</code> and map GitHub-shaped types to agnostic types via pure <code>mappers.ts</code>.</li>
+<li>GitLab (<code>CodeHost</code>, <code>BoardManager</code>) and Jira (<code>IssueTracker</code>, <code>BoardManager</code>) implementations.</li>
+<li>GitHub API wrapper layer: issue/PR/label/project-board ops, GitHub App installation-token auth (<code>githubAppAuth</code>), repo-info parsing, PR-by-branch selection, linked-PR/issue-link detection.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/providers/types.ts</code></td>
+<td>All agnostic interfaces, types, enums (<code>Platform</code>, <code>BoardStatus</code>, <code>BOARD_COLUMNS</code>), <code>validateRepoIdentifier</code>, <code>RepoContext</code> type</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/providers/repoContext.ts</code></td>
+<td><code>createRepoContext</code> factory, validation, <code>loadProviderConfig</code>, <code>resolveIssueTracker/CodeHost/BoardManager</code>, git-remote parsing</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/providers/index.ts</code></td>
+<td>Barrel re-export of types + all platform impls</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/providers/github/{githubIssueTracker,githubCodeHost,githubBoardManager,mappers}.ts</code></td>
+<td>GitHub provider impls + pure mappers</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/providers/gitlab/{gitlabCodeHost,gitlabBoardManager,gitlabApiClient,gitlabTypes,mappers}.ts</code></td>
+<td>GitLab impls over curl REST client</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/providers/jira/{jiraIssueTracker,jiraBoardManager,jiraApiClient,jiraTypes,adfConverter}.ts</code></td>
+<td>Jira impls over REST v3; markdown↔ADF conversion</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/githubApi.ts</code></td>
+<td><code>RepoInfo</code>, repo-info parsing, <code>getAuthenticatedUser</code>, barrel re-export of issue/PR API</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/issueApi.ts</code></td>
+<td>Issue fetch/comment/close/state/label/create via GitContext</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/prApi.ts</code></td>
+<td>PR details/reviews/comments/list/merge/approve; <code>selectPreferredPR</code>, <code>defaultFindPRByBranch</code>, <code>fetchPRApprovalState</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/labelManager.ts</code></td>
+<td><code>adw:*</code> label definitions, lifecycle (<code>ensureAdwLabelsExist</code>, <code>applyLabel</code>), pure read-side (<code>readAdwLabelNames</code>)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/projectBoardApi.ts</code></td>
+<td><code>moveIssueToStatus</code> (thin adapter over GitContext GraphQL)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/githubAppAuth.ts</code></td>
+<td>JWT→installation-token exchange, per-repo token cache, <code>activateGitHubAppAuth</code>, git-identity env setup</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/gitContextFactory.ts</code></td>
+<td><code>gitContextForRepo</code>/<code>gitContextForSync</code> — builds GitContext from ambient auth+identity</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/{issueLinkMarker,linkedPrDetector}.ts</code></td>
+<td>Canonical <code>Closes/Implements #N</code> regex + merged/closed-PR detection</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/workflowComments*.ts</code>, <code>prCommentDetector.ts</code>, <code>proofCommentFormatter.ts</code>, <code>hitlBoardNotifier.ts</code></td>
+<td>ADW comment formatting/parsing and board→Slack notifier</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/types/issueRouting.ts</code></td>
+<td>Issue-type → orchestrator/commit/branch-prefix maps</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ul>
+<li><strong>Context creation</strong>: <code>createRepoContext({repoId, cwd, ...})</code> validates id/dir/remote; selects platforms from explicit options → <code>providersConfig</code> → <code>loadProviderConfig(cwd)</code> (reads <code>.adw/providers.md</code> <code>## Code Host</code> / <code>## Issue Tracker</code> headings, GitHub default); resolves providers; <code>boardManager</code> resolution is wrapped in try/catch so unsupported platforms simply omit it; returns frozen <code>RepoContext</code>.</li>
+<li><strong>GitHub providers</strong>: constructed bound to a <code>RepoInfo</code> (<code>toRepoInfo(repoId)</code>); each method delegates to the corresponding <code>github/*</code> function passing the bound repo, then maps results — never relies on a global repo registry.</li>
+<li><strong>GitHub API wrapper</strong>: every helper calls <code>gitContextForRepo(repoInfo)</code> to get a fresh GitContext, runs a <code>gh</code>/REST/GraphQL command, JSON-parses, and transforms to ADW types. Many helpers are fail-soft (log + return <code>false</code>/<code>[]</code>/<code>null</code>); a few (<code>fetchIssue</code>, <code>createIssue</code>, <code>updateIssueBody</code>, <code>deleteIssueComment</code>) throw.</li>
+<li><strong>App auth</strong>: <code>activateGitHubAppAuth</code> (when <code>GITHUB_APP_*</code> env set) signs a 10-min RS256 JWT, resolves installation id via REST, exchanges for an installation token cached per <code>owner/repo</code> (5-min refresh buffer), sets <code>process.env.GH_TOKEN</code> + git-identity bot env vars. <code>gitContextFactory.resolveToken</code> order: App token → <code>GH_TOKEN</code> → <code>gh auth token</code>.</li>
+<li><strong>Board manager (GitHub)</strong>: GraphQL find/create ProjectsV2, link to repo, and <code>ensureColumns</code> merges existing Status options with <code>BOARD_COLUMNS</code> via <code>mergeStatusOptions</code> (preserves option ids, inserts missing columns at order-anchored positions). <code>moveIssueToStatus</code> also fires a Slack HITL notification when target is <code>review</code>.</li>
+<li><strong>Labels</strong>: six canonical <code>adw:*</code> labels; <code>applyLabel</code> lazy-creates a missing label on "not found" then retries; pure <code>readAdwLabelNames</code> derives opt-out / classification / conflict.</li>
+<li><strong>Jira/GitLab divergences</strong>: Jira maps status categories (<code>new</code>/<code>indeterminate</code>/<code>done</code>) to ADW states and uses fuzzy transition matching; some <code>IssueTracker</code> methods are sync-signature but Jira is async, so they fire-and-forget and return placeholders (<code>getIssueState</code> → <code>'UNKNOWN'</code>). GitLab uses a curl-based <code>GitLabApiClient</code>, requires <code>GITLAB_TOKEN</code>.</li>
+</ul>
+<h2>Data Structures</h2>
+<ul>
+<li><code>Platform</code> enum (<code>github</code>/<code>gitlab</code>/<code>bitbucket</code>); <code>RepoIdentifier {owner, repo, platform}</code>; <code>RepoInfo {owner, repo}</code> (GitHub-layer shape).</li>
+<li><code>Issue</code>, <code>IssueComment</code>, <code>PullRequest</code>, <code>ReviewComment</code>, <code>CreatePROptions</code>, <code>PullRequestResult</code>.</li>
+<li><code>BoardStatus</code> enum + <code>BoardColumnDefinition</code> + <code>BOARD_COLUMNS</code> ordered list (Blocked/Todo/In Progress/Review/Done).</li>
+<li><code>RepoContext = Readonly&lt;{issueTracker, codeHost, boardManager?, cwd, repoId}&gt;</code>.</li>
+<li><code>ProviderConfig</code> (parsed from <code>.adw/providers.md</code>); <code>AdwLabelDefinition</code>, <code>AdwLabelReading</code>; <code>LinkedPRRef</code>; <code>RawPR</code>/<code>RawPRListEntry</code>.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>Interfaces: <code>IssueTracker</code>, <code>CodeHost</code>, <code>BoardManager</code>; type <code>RepoContext</code>.</li>
+<li>Factories: <code>createRepoContext</code>, <code>createGitHubIssueTracker/CodeHost/BoardManager</code>, <code>createGitLabCodeHost/BoardManager</code>, <code>createJiraIssueTracker/BoardManager</code>; <code>gitContextForRepo</code>/<code>gitContextForSync</code>.</li>
+<li>GitHub helpers (re-exported via <code>adws/github/index.ts</code>): <code>fetchGitHubIssue</code>, <code>commentOnIssue</code>, <code>closeIssue</code>, <code>getIssueState</code>, <code>issueHasLabel</code>, <code>addIssueLabel</code>, <code>createIssue</code>, <code>updateIssueBody</code>, <code>findOpenUpgradeIssue</code>, <code>fetchPRDetails</code>, <code>fetchPRReviewComments</code>, <code>commentOnPR</code>, <code>mergePR</code>, <code>approvePR</code>, <code>fetchPRList</code>, <code>fetchPRApprovalState</code>, <code>selectPreferredPR</code>, <code>defaultFindPRByBranch</code>, <code>moveIssueToStatus</code>, label-manager API, <code>activateGitHubAppAuth</code>/<code>getInstallationToken</code>/<code>refreshTokenIfNeeded</code>, <code>bodyLinksIssue</code>, <code>hasLinkedMergedOrClosedPR</code>, <code>getRepoInfo*</code>, <code>getAuthenticatedUser</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><strong><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</strong> — every GitHub helper and provider routes through <code>gitContextForRepo</code>/<code>gitContextForSync</code>; the actual <code>gh</code>/git/GraphQL execution lives in GitContext.</li>
+<li><strong><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</strong> — <code>REPO_ROOT</code>, <code>TARGET_REPOS_DIR</code>, <code>GITHUB_PAT</code>, <code>GITLAB_TOKEN</code>, <code>JIRA_*</code>, <code>GITHUB_APP_*</code>; <code>ProvidersConfig</code> from <code>core/projectConfig</code>; <code>.adw/providers.md</code>.</li>
+<li><code>core</code> log/<code>execWithRetry</code>; node <code>child_process</code>/<code>crypto</code>/<code>fs</code>.</li>
+<li>Downstream (depended on by):</li>
+<li><strong><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</strong> — <code>workflowInit</code>, <code>prReviewPhase</code>, <code>upgradeGate</code>, <code>phaseCommentHelpers</code> build/consume <code>RepoContext</code> and call issue/PR/board helpers.</li>
+<li><strong><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</strong> / <strong><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge/HITL/resilience</strong> — label classification, linked-PR detection, PR selection/merge/approval, pause-queue scanner.</li>
+<li><strong><a class="xref" href="12-framework-self-upgrade.html" title="12. Framework self-upgrade">12. </a>Framework self-upgrade</strong> — <code>findOpenUpgradeIssue</code>, <code>hasWontFixLabel</code>, <code>adw:upgrade</code> label.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</td>
+<td>depends-on</td>
+<td>All command execution; providers/helpers wrap GitContext via <code>gitContextForRepo</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>called-by</td>
+<td>Supplies <code>RepoContext</code> + issue/PR/board ops to workflow phases</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</td>
+<td>depends-on</td>
+<td>Platform selection from <code>.adw/providers.md</code>/<code>ProvidersConfig</code>; tokens/secrets env vars</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</td>
+<td>called-by</td>
+<td>Issue classification labels, orchestrator routing maps, repo-info parsing</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience</td>
+<td>called-by</td>
+<td>PR approval/merge state, linked-PR detection, board <code>review</code> → Slack notify</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="12-framework-self-upgrade.html" title="12. Framework self-upgrade">12. </a>Framework self-upgrade</td>
+<td>called-by</td>
+<td><code>adw:upgrade</code> issue lookup, wontfix-label idempotency guard</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry &amp; D1</td>
+<td>none-direct</td>
+<td>(no direct coupling)</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<p>No orienting PRD for this subsystem. Observed in-code notes rather than PRD gaps:
+- <code>githubAppAuth.activateGitHubAppAuth</code> sets <code>process.env.GH_TOKEN</code> as an explicitly "transitional boundary provisioning" shim for legacy callers not yet on <code>gitContextForRepo</code> (refs #661/#662).
+- <code>BoardManager</code> resolves from the <strong>code host</strong> platform, not the issue tracker (per resolver comment).
+- Jira <code>IssueTracker</code> sync-signature methods (<code>getIssueState</code>, <code>fetchComments</code>) cannot satisfy Jira's async API and return placeholders — a documented interface mismatch.
+- <code>Platform.Bitbucket</code> is defined but has no implementation; <code>validateRepoIdentifier</code> accepts it but resolvers throw.</p><nav class="footer-pager"><a href="05-phase-runner-and-cost-tracking.html"><div class="dir">← Previous · 05</div><div class="ttl">Phase runner & cost-tracking composition</div></a><a class="next" href="07-phases-and-orchestrators.html"><div class="dir">Next · 07 →</div><div class="ttl">Phases & orchestrators</div></a></nav>
+</main>
+</div>
+</body>
+</html>

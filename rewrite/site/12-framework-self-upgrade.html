@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>12. Framework self-upgrade — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">12 / 16 — Framework self-upgrade</span><div class="spacer"></div><div class="pager"><a href="11-automerge-hitl-resilience.html">← Auto-merge / HITL + resilience queues</a><a href="13-cost-telemetry-and-d1.html">Cost telemetry & D1 →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="current" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 12 of 16</div><h1>Framework self-upgrade</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_12.png" alt="Detail diagram for Framework self-upgrade"><figcaption>Figure 12 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>Keeps every registered target repo's <code>.adw/</code> configuration in sync with the ADW framework. A content hash of the framework's init inputs is compared against each target's stored <code>.adw-version</code>; on mismatch a single orchestrator is elected (via the GitHub branch namespace) to regenerate <code>.adw/</code> by running <code>/adw_init</code> and open (and usually auto-merge) a PR. Also covers the initial <code>/adw_init</code> bootstrap that classifies a repo's stack and generates <code>.adw/</code>.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Compute a stable SHA256 "framework version" hash over declared <code>hashInputs:</code> files (<code>hashComputer</code>).</li>
+<li>Read/write the target repo's root <code>.adw-version</code> stamp (<code>adwVersion</code>).</li>
+<li>Parse <code>.github/adw.yml</code> policy (<code>hitl</code>, <code>unitTests</code>) (<code>adwYmlConfig</code>).</li>
+<li>Gate <code>initializeWorkflow()</code> on hash match; on mismatch, elect winner/loser and park the triggering issue (<code>upgradeGate</code>).</li>
+<li>Provide the atomic claim primitive: empty nonce commit pushed (no <code>--force</code>) to <code>adw-upgrade-&lt;hash&gt;</code> — push success = winner, rejection = loser (<code>upgradeClaim</code>).</li>
+<li>Drive the upgrade end-to-end: checkout claim branch, run <code>/adw_init</code>, validate regen, write <code>.adw-version</code>, commit, push, open PR, gated auto-merge, failure-cap escalation (<code>adwUpgrade.tsx</code>).</li>
+<li>Own the six <code>adw:*</code> labels and the pure label-classification read-side (<code>labelManager</code>).</li>
+<li>The <code>/adw_init</code> slash command: stack classification, <code>.adw/</code> file generation, vocabulary template materialization.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>adws/core/hashComputer.ts</code></td>
+<td>SHA256 over <code>hashInputs:</code> files from <code>adw_init.md</code> frontmatter; sorted, order-invariant; CLI entrypoint</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/adwVersion.ts</code></td>
+<td>Read/write <code>&lt;worktree&gt;/.adw-version</code> (absent/empty → null)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/adwYmlConfig.ts</code></td>
+<td>Parse <code>.github/adw.yml</code> → <code>{ hitl, unitTests }</code>; template + <code>writeAdwYmlTemplateIfAbsent</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/upgradeClaim.ts</code></td>
+<td>Atomic winner/loser election via detached empty-nonce commit pushed to claim branch; <code>isPushRejectionError</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/upgradeFailureCap.ts</code></td>
+<td>Count bot-authored <code>UPGRADE_FAILURE_SIGNATURE</code> comments for cap escalation</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/upgradeGate.ts</code></td>
+<td>Init-time gate: hash compare → claim → park (winner spawns orchestrator, loser attaches dependency)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/adwUpgrade.tsx</code></td>
+<td>The upgrade orchestrator (8-step regen flow + escalation)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/workflowInit.ts</code> (~L276–301)</td>
+<td><code>runUpgradeGate</code> call site (target-repos only; <code>process.exit(0)</code> on park)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/worktreeSetup.ts</code></td>
+<td><code>copyAdwInitCommandToWorktree</code>, <code>verifyAdwRegen</code>, <code>REQUIRED_ADW_FILES</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/labelManager.ts</code></td>
+<td><code>adw:*</code> label definitions, <code>ensureAdwLabelsExist</code>, <code>applyLabel</code>, pure <code>readAdwLabels</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>.claude/commands/adw_init.md</code></td>
+<td><code>/adw_init</code> spec: <code>hashInputs:</code> frontmatter + <code>.adw/</code> generation + stack classification</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/webhookGatekeeper.ts</code> (~L85–94)</td>
+<td>Routes <code>adw:upgrade</code> issues directly to <code>adwUpgrade.tsx</code>; <code>spawnDetached</code></td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<p><strong>Hash:</strong> <code>computeFrameworkHash(root)</code> reads <code>adw_init.md</code>, parses <code>hashInputs:</code> (currently <code>adw_init.md</code>, <code>document.md</code>, <code>vocabulary.md.template</code>), reads each file's bytes in lexicographic path order, returns SHA256 hex. Because <code>adw_init.md</code> lists itself, any edit to it changes the hash — propagating upgrades to all targets.</p>
+<p><strong>Upgrade gate (init-time):</strong> Runs only for target repos. <code>shouldTriggerUpgrade = storedVersion !== currentHash</code> (null <code>.adw-version</code> → always upgrade). On match → <code>{ action: 'proceed' }</code>. On mismatch → <code>claimUpgrade(hash, repoInfo)</code>:
+- <em>Winner:</em> create tracking issue <code>ADW framework upgrade &lt;hash12&gt;</code>, apply <code>adw:upgrade</code>, <code>spawnDetached</code> <code>adwUpgrade.tsx</code>, park triggering issue (insert <code>- #&lt;upg&gt;</code> under <code>## Blocked by</code>/Dependencies, best-effort board move to Todo).
+- <em>Loser:</em> find existing upgrade issue (from claim result or <code>findOpenUpgradeIssue</code>), park with dependency; if no issue found yet (race) park without body edit.
+The claim must run against the <strong>target</strong> repo's branch namespace, so <code>buildDefaultUpgradeGateDeps</code> pins <code>baseRepoPath</code> to the worktree (not framework <code>process.cwd()</code>).</p>
+<p><strong>Atomic claim:</strong> <code>defaultPushClaimBranch</code> fetches default branch, adds a detached worktree at <code>origin/&lt;default&gt;</code>, commits <code>--allow-empty</code> with a random nonce, pushes <code>HEAD:refs/heads/adw-upgrade-&lt;hash&gt;</code> without <code>--force</code>. Success → winner; rejection (matched against <code>REJECTION_PATTERNS</code>) → loser. Nonce guarantees the second pusher gets a true non-fast-forward (no identical-SHA "up to date" false win). Temp worktree cleaned up in <code>finally</code>.</p>
+<p><strong>adwUpgrade orchestrator (8 steps):</strong> Runs under <code>runWithRawOrchestratorLifecycle</code> (lock→heartbeat→run→cleanup); does NOT call <code>initializeWorkflow</code>. Activates target-repo App auth, sets up workspace, builds <code>gitCtx</code>. <code>executeUpgrade</code>: (1) entry gate — if <code>adw:blocked</code> present, return <code>escalated</code>; (2) compute hash; (3) derive branch; idempotency guard — if claim branch already has a PR (and not <code>wontfix</code>), return <code>pr_already_exists</code>; failure-cap — if bot failure comments ≥ <code>MAX_FAILURES</code>, apply <code>adw:blocked</code>, Slack alert, escalate; (4) <code>ensureWorktree</code> + <code>reconcileWorktreeToRemote</code> (fetch + <code>reset --hard origin/&lt;branch&gt;</code>); (5) copy <code>adw_init.md</code> (gitignored), run <code>/adw_init</code> via <code>runClaudeAgentWithCommand</code> (sonnet); on LLM failure post <code>UPGRADE_FAILURE_SIGNATURE</code> comment; (6) <code>verifyAdwRegen</code> (6 <code>.adw/</code> files non-empty + <code>vocabulary.md</code>); (7) <code>writeAdwVersion</code>, commit (excluding copied <code>adw_init.md</code>), push — non-fast-forward → park as <code>claim_lost</code>; (8) <code>createPullRequest</code> (<code>Closes #&lt;n&gt;</code>); read <code>.github/adw.yml</code> — <code>hitl: true</code> leaves PR open + comments; else best-effort <code>mergePR</code> (failure non-fatal, comment posted). Re-dispatch is self-healing: cron/webhook routes <code>adw:upgrade</code> issues back to <code>adwUpgrade.tsx</code> each tick; a claim with no PR is rebuilt.</p>
+<p><strong><code>/adw_init</code> bootstrap:</strong> Detects language/framework/package-manager from manifests, generates the six <code>.adw/*.md</code> files, detects scenario tool (Playwright/Cypress/Cucumber, default Cucumber), copies <code>vocabulary.md.template</code> to <code>features/regression/</code>, and classifies stack (browser-test-equipped / CLI-only / fallback) to fill the observability-surfaces block.</p>
+<h2>Data Structures</h2>
+<ul>
+<li><code>UpgradeClaimResult</code> = <code>{ won: true; branch }</code> | <code>{ won: false; existingIssueNumber; existingBranch }</code>.</li>
+<li><code>UpgradeGateOutcome</code> = <code>{ action: 'proceed' }</code> | <code>{ action: 'parked'; role: 'winner'|'loser'; upgradeIssueNumber; branch }</code>.</li>
+<li><code>UpgradeRunResult</code> = <code>{ outcome: 'completed'|'failed'|'escalated'; reason; prUrl? }</code>.</li>
+<li><code>AdwYmlConfig</code> = <code>{ hitl: boolean; unitTests: boolean }</code> (defaults <code>false</code>/<code>true</code>).</li>
+<li><code>IssueCommentRecord</code> = <code>{ body; author }</code>; <code>AdwLabelReading</code> = <code>{ optOut; classification; conflict }</code>.</li>
+<li><code>.adw-version</code>: plain hex SHA256 + trailing newline. Claim branch: <code>adw-upgrade-&lt;hash&gt;</code>.</li>
+<li>Labels: <code>adw:chore|bug|feature|pr_review</code> (classification), <code>adw:upgrade</code>, <code>adw:none</code>, <code>adw:unverified</code>, <code>adw:blocked</code>.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li><code>computeFrameworkHash(root, deps?) → string</code>; <code>ADW_INIT_RELATIVE_PATH</code>.</li>
+<li><code>readAdwVersion(worktree) → string|null</code>; <code>writeAdwVersion(worktree, hash)</code>.</li>
+<li><code>readAdwYmlConfig(worktree) → AdwYmlConfig</code>; <code>parseAdwYml</code>; <code>writeAdwYmlTemplateIfAbsent</code>; <code>ADW_YML_TEMPLATE</code>.</li>
+<li><code>claimUpgradeOrFindExisting(hash, repoInfo, deps?)</code>; <code>buildClaimBranchName(hash)</code>; <code>isPushRejectionError</code>; <code>buildDefaultUpgradeClaimDeps(baseRepoPath?)</code>.</li>
+<li><code>runUpgradeGate(params, deps)</code>; <code>shouldTriggerUpgrade</code>; <code>addDependencyToBody</code>; <code>buildDefaultUpgradeGateDeps(repoId, worktree)</code>.</li>
+<li><code>executeUpgrade(...)</code> + <code>build*Comment</code>/<code>build*PrBody/Title</code> helpers; <code>adwUpgrade.tsx</code> CLI: <code>&lt;issueNumber&gt; [adw-id] [--target-repo owner/repo] [--clone-url &lt;url&gt;]</code>.</li>
+<li><code>ensureAdwLabelsExist</code>, <code>applyLabel</code>, <code>readAdwLabels</code>, <code>issueTypeToAdwLabel</code>; label-name constants.</li>
+<li><code>verifyAdwRegen</code>, <code>copyAdwInitCommandToWorktree</code>, <code>REQUIRED_ADW_FILES</code>; <code>countUpgradeFailureComments</code>, <code>UPGRADE_FAILURE_SIGNATURE</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li>Agent execution (4): <code>runClaudeAgentWithCommand</code> runs <code>/adw_init</code>.</li>
+<li>Provider abstraction (6): <code>createGitHubCodeHost</code>/<code>createRepoContext</code>, <code>RepoIdentifier</code>, <code>BoardStatus</code>, <code>createPullRequest</code>, <code>moveToStatus</code>.</li>
+<li>GitContext (3): <code>gitContextFor</code>, <code>ensureWorktree</code>, <code>commitChanges</code>, <code>pushBranch</code>, <code>fetchAndResetToRemote</code>, label/issue ops.</li>
+<li>State &amp; ADW ID (2): <code>generateAdwId</code>, orchestrator state via raw lifecycle lock.</li>
+<li>Config &amp; Environment (1): <code>parseTargetRepoArgs</code>, <code>ensureTargetRepoWorkspace</code>, <code>activateGitHubAppAuth</code>, logs dir.</li>
+<li>Cost telemetry (13): via raw orchestrator lifecycle / agent run.</li>
+<li>Downstream (depended on by):</li>
+<li>Phases &amp; orchestrators (7): <code>workflowInit</code> calls <code>runUpgradeGate</code>, parks/exits before any workflow comment.</li>
+<li>Triggers (10): <code>webhookGatekeeper</code> routes <code>adw:upgrade</code> issues to <code>adwUpgrade.tsx</code>.</li>
+<li>Auto-merge/HITL + resilience (11): <code>.github/adw.yml hitl</code> gates auto-merge of the upgrade PR; <code>adw:blocked</code> escalation; Slack.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7 </a>Phases &amp; orchestrators</td>
+<td>inbound</td>
+<td><code>workflowInit</code> invokes the gate; <code>parked</code> → <code>process.exit(0)</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="10-triggers.html" title="10. Triggers">10 </a>Triggers</td>
+<td>inbound</td>
+<td><code>spawnDetached('bunx tsx adws/adwUpgrade.tsx ...')</code> for <code>adw:upgrade</code> issues</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4 </a>Agent execution</td>
+<td>outbound</td>
+<td>runs <code>/adw_init</code> slash command (sonnet) in the upgrade worktree</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">3 </a>GitContext</td>
+<td>outbound</td>
+<td>worktree create/reset, commit, push, branch claim, label/issue ops</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">6 </a>Provider abstraction</td>
+<td>outbound</td>
+<td>open PR, merge PR, move issue board status</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11 </a>Auto-merge / HITL</td>
+<td>outbound</td>
+<td><code>adw.yml hitl</code> decides auto-merge vs human review; failure-cap → <code>adw:blocked</code> + Slack</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">8 </a>BDD / scenario</td>
+<td>outbound</td>
+<td><code>/adw_init</code> writes <code>scenarios.md</code> + <code>features/regression/vocabulary.md</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="14-docs-and-living-docs.html" title="14. Docs & living-docs">14 </a>Docs &amp; living-docs</td>
+<td>outbound</td>
+<td><code>/adw_init</code> writes <code>conditional_docs.md</code>; <code>document.md</code> is a <code>hashInputs:</code> file</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li>PRD <code>specs/prd/adw-init-hash-and-label-classification.md</code> describes hash storage at repo root and label-based classification — implementation matches (<code>.adw-version</code> and <code>.github/adw.yml</code> outside <code>.adw/</code>; <code>adw:*</code> labels in <code>labelManager</code>).</li>
+<li>Implementation extends beyond the PRD: failure-cap escalation (<code>adw:blocked</code>, <code>MAX_FAILURES</code>), <code>hitl</code>/<code>unitTests</code> policy in <code>.github/adw.yml</code>, <code>wontfix</code>-PR rebuild escape hatch, and stale-worktree <code>reconcileWorktreeToRemote</code> are not part of the orienting PRD's scope. No contradictions observed.</li>
+</ul><nav class="footer-pager"><a href="11-automerge-hitl-resilience.html"><div class="dir">← Previous · 11</div><div class="ttl">Auto-merge / HITL + resilience queues</div></a><a class="next" href="13-cost-telemetry-and-d1.html"><div class="dir">Next · 13 →</div><div class="ttl">Cost telemetry & D1</div></a></nav>
+</main>
+</div>
+</body>
+</html>

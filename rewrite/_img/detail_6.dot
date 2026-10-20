@@ -1,0 +1,23 @@
+digraph G {
+  rankdir=LR; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, width=1.5, height=0.6, margin="0.08,0.05"];
+  edge [fontname="Helvetica", fontsize=8, color="#999999", fontcolor="#555555", arrowsize=0.6];
+  graph [ranksep=1.6, nodesep=0.18];
+  6 [label="6. Provider\nabstraction", fillcolor="#5a4a86", fontcolor="white", color="#111111", penwidth=3];
+
+  1 [label="1. Config &\nEnvironment", fillcolor="#33485ebb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  3 [label="3. GitContext", fillcolor="#2f6b6bbb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  7 [label="7. Phases &\norchestrators", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  11 [label="11. Auto-merge / HITL\n+ resilience", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  12 [label="12. Framework\nself-upgrade", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  6 -> 1 [label="providers.md, tokens", color="#7a2f4a", penwidth=1.4];
+  6 -> 3 [label="all gh/git via GitContext", color="#7a2f4a", penwidth=1.4];
+  7 -> 6 [label="issue/PR/board ops", color="#2f6b6b", penwidth=1.4, style=dashed];
+  11 -> 6 [label="PR merge/approve", color="#2f6b6b", penwidth=1.4, style=dashed];
+  12 -> 6 [label="open/merge upgrade PR", color="#2f6b6b", penwidth=1.4, style=dashed];
+}

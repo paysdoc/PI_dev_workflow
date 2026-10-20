@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>14. Docs & living-docs — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">14 / 16 — Docs & living-docs</span><div class="spacer"></div><div class="pager"><a href="13-cost-telemetry-and-d1.html">← Cost telemetry & D1</a><a href="15-screenshots.html">Screenshots →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="current" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 14 of 16</div><h1>Docs & living-docs</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_14.png" alt="Detail diagram for Docs & living-docs"><figcaption>Figure 14 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>Generates and maintains current-state module documentation under <code>app_docs/</code>. The <code>/document</code> skill semantically routes a code change to the module doc that already owns the touched area, rewrites that doc in place (no changelog history), and converges <code>.adw/conditional_docs.md</code> toward one entry per module. Deterministic guards run as a post-write self-check to flag doc bloat and ownership regrowth, opening GitHub refactor issues on bloat. The registry (<code>conditional_docs.md</code>) is the bounded index that <code>/prime</code>, <code>/conditional_docs</code>, and planning runs read to decide which feature docs to load.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Run the <code>/document</code> LLM skill in the Document phase to write/rewrite feature docs and update the index.</li>
+<li>Parse / serialize <code>.adw/conditional_docs.md</code> into structured entries (registry module — pure).</li>
+<li>Provide ownership routing queries (glob match → owning entry/entries) and immutable registry mutations (upsert, collapse siblings).</li>
+<li>Compute deterministic guard flags: bloat (doc line count over threshold) and regrowth (entries with overlapping owned globs).</li>
+<li>Post-write self-check: measure produced docs, run guards, log flags, route each bloat flag to a GitHub refactor issue (de-duplicated against open issues).</li>
+<li>One-off migration acceptance gate (<code>checkLivingDocsIndex.ts</code>): round-trip, doc↔entry bijection, no glob overlap, entry-count band.</li>
+<li>Expose the parsed registry on <code>ProjectConfig</code> for downstream consumers.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/conditionalDocsRegistry.ts</code></td>
+<td>Pure registry: parse/serialize, <code>matchesGlob</code>, <code>findOwningEntry(ies)</code>, <code>collapseEntries</code>, <code>upsertEntry</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/docsGuards.ts</code></td>
+<td>Pure guards: <code>globsOverlap</code>, <code>checkBloat</code>, <code>checkRegrowth</code>, <code>runDocsGuards</code>, <code>DOC_BLOAT_THRESHOLD_LINES=400</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/documentAgent.ts</code></td>
+<td><code>runDocumentAgent</code> — wraps <code>/document</code> via <code>commandAgent</code>; extracts trailing doc path from output.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/documentPhase.ts</code></td>
+<td><code>executeDocumentPhase</code> — runs document agent, post-write self-check, commits, pushes.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/docsSelfCheck.ts</code></td>
+<td><code>executeDocsPostWriteSelfCheck</code> — parse registry, measure docs, run guards, file refactor issues.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/checkLivingDocsIndex.ts</code></td>
+<td>Standalone migration acceptance gate (CLI, <code>bunx tsx</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/projectConfig.ts</code></td>
+<td>Reads <code>.adw/conditional_docs.md</code>, exposes <code>conditionalDocsMd</code> + parsed <code>conditionalDocs</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>.claude/commands/document.md</code></td>
+<td><code>/document</code> skill prompt: routing/collapse/rewrite/create-new logic and doc format.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>.claude/commands/conditional_docs.md</code></td>
+<td><code>/conditional_docs</code> guide: read index, match conditions, load only matching docs.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>.claude/commands/prime.md</code></td>
+<td><code>/prime</code> — reads README + <code>conditional_docs.md</code> guide.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>.adw/conditional_docs.md</code></td>
+<td>The live registry (221 entries; 30 carry <code>Owns:</code> blocks).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>app_docs/*.md</code>, <code>app_docs/assets/</code></td>
+<td>Module docs (<code>feature-{adwId}-*.md</code>) and copied review screenshots.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/__tests__/{conditionalDocsRegistry,docsGuards}.test.ts</code></td>
+<td>Pure-function table tests.</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<p><strong>Document phase</strong> (<code>executeDocumentPhase</code>): posts <code>document_running</code> comment; resolves spec path via <code>getPlanFilePath</code>; initializes <code>document-agent</code> state; calls <code>runDocumentAgent(adwId, logsDir, specFile, screenshotsDir, statePath, worktreePath, issue.body)</code>. On agent failure: writes failed state, posts <code>document_failed</code>, throws. On success: writes truncated output, runs the post-write self-check (wrapped in try/catch — <strong>non-fatal, never fails the phase</strong>), runs <code>runCommitAgent('document-agent', …)</code>, pushes the branch, posts <code>document_completed</code>, emits phase cost records.</p>
+<p><strong><code>/document</code> skill routing</strong> (semantic-first, LLM-driven): diff <code>origin/main</code> → touched files; read spec if given; copy <code>*.png</code> screenshots into <code>app_docs/assets/</code>. Read <code>.adw/conditional_docs.md</code> and semantically judge which entry's module owns the area (conditions text holistically; <code>Owns:</code> globs are corroborating, not required — legacy entries have none). Match → collapse sibling entries (survivor doc rewritten in place, non-survivor files deleted, entries removed, one merged entry with union of owned globs, regenerated conditions). No match → create <code>feature-{adwId}-{name}.md</code> + one new entry with an <code>Owns:</code> glob block. Never duplicate a <code>docPath</code>. Output: only the doc path (last line consumed by <code>extractDocPathFromOutput</code>).</p>
+<p><strong>Post-write self-check</strong> (<code>executeDocsPostWriteSelfCheck</code>): read <code>{worktree}/.adw/conditional_docs.md</code> (missing → empty registry); measure each produced doc's line count; <code>runDocsGuards(entries, sizes, threshold)</code>; log every bloat + regrowth flag at <code>warn</code>; for each bloat flag call <code>routeBloatFlag</code>. Routing: look up the open issue via <code>gh issue list --search "docs-bloat: &lt;docPath&gt;"</code>; if found, reuse its number; else <code>createIssue</code> titled <code>\`docs-bloat\`: &lt;docPath&gt; exceeds &lt;N&gt; lines — refactor &lt;area&gt;</code> (body lists owned globs as the refactor area). Issue-creation failures are caught and logged (non-fatal). Returns <code>{ flags, routed }</code>.</p>
+<p><strong>Guards</strong> (deterministic): <code>checkBloat</code> — strictly <code>lineCount &gt; threshold</code> flags (at-threshold passes). <code>checkRegrowth</code> — only entries with non-empty <code>ownedGlobs</code> participate (legacy entries excluded to avoid ~190 false positives); pairwise <code>globsOverlap</code> via <code>ownershipRoot</code> (leading non-wildcard segments) + <code>isSegmentPrefix</code>.</p>
+<p><strong>Glob matcher</strong>: custom <code>globToRegExp</code> — <code>**</code> → <code>.*</code>, <code>*</code> → <code>[^/]*</code>, <code>?</code> → <code>[^/]</code>, anchored full match; no external dependency.</p>
+<p><strong>Migration gate</strong> (<code>checkLivingDocsIndex.ts</code>, run manually): round-trip (<code>parse → serialize === original</code>), doc↔entry bijection (no dangling/orphan/duplicate), no per-file ownership overlap (<code>findOwningEntries</code> ≥2 owners), entry count in <code>[25, 60]</code>. Exits 0/1.</p>
+<h2>Data Structures</h2>
+<ul>
+<li><code>ConditionalDocEntry { docPath, ownedGlobs: string[], conditions: string[] }</code></li>
+<li><code>ConditionalDocsRegistry { preamble, entries }</code></li>
+<li><code>DocSize { docPath, lineCount }</code>; <code>BloatFlag { docPath, lineCount, threshold }</code>; <code>RegrowthFlag { docPathA, docPathB, globA, globB }</code>; <code>GuardFlags { bloat, regrowth }</code></li>
+<li><code>RefactorFollowUp { docPath, ownedGlobs, issueNumber? }</code>; <code>DocsSelfCheckResult { flags, routed }</code>; <code>DocsSelfCheckParams</code>, <code>DocsSelfCheckDeps</code> (injectable: readFile, createIssue, findExistingRefactorIssue, log)</li>
+<li>Serialized entry format: <code>- &lt;docPath&gt;</code> / <code>- Owns:</code> / <code>- &lt;glob&gt;</code> / <code>- Conditions:</code> / <code>- &lt;line&gt;</code>; entries blank-line separated; <code>Owns:</code> block omitted when empty (legacy compat); exactly one trailing newline.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>Registry: <code>parseConditionalDocs</code>, <code>serializeConditionalDocs</code>, <code>matchesGlob</code>, <code>findOwningEntry</code>, <code>findOwningEntries</code>, <code>collapseEntries</code>, <code>upsertEntry</code> (re-exported via <code>adws/core/index.ts</code>).</li>
+<li>Guards: <code>checkBloat</code>, <code>checkRegrowth</code>, <code>runDocsGuards</code>, <code>globsOverlap</code>, <code>DOC_BLOAT_THRESHOLD_LINES</code>.</li>
+<li>Agent/phases: <code>runDocumentAgent</code> (<code>adws/agents</code>), <code>executeDocumentPhase</code>, <code>executeDocsPostWriteSelfCheck</code>, <code>buildDefaultDocsSelfCheckDeps</code> (<code>adws/phases</code>).</li>
+<li>CLI: <code>bunx tsx adws/checkLivingDocsIndex.ts</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on): <code>commandAgent</code>/<code>claudeAgent</code> (Agent execution, <a class="xref" href="04-agent-execution.html" title="04. Agent execution">#4</a>); <code>AgentStateManager</code>, <code>log</code>, <code>execWithRetry</code>, <code>ModelUsageMap</code> (Config/State, #1/<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">#2</a>); <code>getRepoInfo</code>, <code>gitContextFor</code>, <code>createIssue</code>, <code>RepoInfo</code> (GitContext + GitHub API, <a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a>); <code>createPhaseCostRecords</code>/<code>PhaseCostStatus</code> (#5/<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">#13</a>); <code>getPlanFilePath</code>, <code>runCommitAgent</code>, <code>postIssueStageComment</code> <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a>; <code>WorkflowConfig</code> <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a>.</li>
+<li>Downstream (depended on by): <code>executeDocumentPhase</code> is wired into orchestrators via <code>adws/workflowPhases.ts</code> <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a>; <code>projectConfig</code> exposes the parsed registry to any <code>ProjectConfig</code> consumer; <code>/prime</code>, <code>/conditional_docs</code>, planning skills read the index.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4 </a>Agent execution</td>
+<td>calls</td>
+<td><code>runDocumentAgent</code> runs <code>/document</code> via <code>runCommandAgent</code> (args <code>[adwId, specPath, screenshotsDir]</code>, issue body for model/effort).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7 </a>Phases &amp; orchestrators</td>
+<td>called by / calls</td>
+<td><code>executeDocumentPhase</code> invoked by orchestrators (<code>workflowPhases.ts</code>); calls <code>getPlanFilePath</code>, <code>runCommitAgent</code>, posts stage comments.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">3 </a>GitContext / GitHub</td>
+<td>calls</td>
+<td><code>gitContextFor</code>, <code>pushBranch</code>, <code>getRepoInfo</code>; <code>createIssue</code> + <code>gh issue list</code> for refactor-issue routing.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>1/2 Config &amp; State</td>
+<td>calls / read by</td>
+<td><code>AgentStateManager</code> state+logs; <code>projectConfig</code> parses index into <code>ProjectConfig.conditionalDocs</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>5/13 Cost &amp; telemetry</td>
+<td>produces</td>
+<td>Phase cost records + <code>modelUsage</code> from the document agent.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="15-screenshots.html" title="15. Screenshots">15 </a>Screenshots</td>
+<td>reads</td>
+<td><code>/document</code> copies review screenshots into <code>app_docs/assets/</code> and references them.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="12-framework-self-upgrade.html" title="12. Framework self-upgrade">12 </a>Framework self-upgrade</td>
+<td>propagated by</td>
+<td><code>document.md</code>/<code>conditional_docs.md</code> are <code>.adw/</code> hash inputs regenerated to registered target repos.</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<p>PRD <code>app-docs-module-living-docs.md</code> is <strong>partially implemented</strong>.
+- Implemented: registry module (parse/serialize/ownership), guards module (bloat + regrowth), rewritten <code>/document</code> convergence prompt, post-write self-check with bloat→refactor-issue routing, migration acceptance gate, unit tests. Matches PRD's pure-module + LLM-prompt split.
+- Divergence: the PRD's bloat action is "surfaced by <code>/document</code>; downstream actor is <code>/refactor</code> or a filed refactor issue." The implementation <strong>directly files a GitHub issue</strong> from the phase self-check (<code>routeBloatFlag</code> → <code>createIssue</code>); regrowth flags are only logged, not routed/issued.
+- Divergence: the <strong>one-off ADW migration is not complete</strong> in the live index — <code>.adw/conditional_docs.md</code> has 221 entries (only 30 with <code>Owns:</code> blocks), far above the PRD's target ~40 and the gate's <code>MAX_ENTRIES=60</code>. The convergence machinery ships, but the bulk legacy backlog remains un-migrated, so <code>checkLivingDocsIndex.ts</code> would currently fail the count-sanity check.
+- Not separately verified here: the PRD's BDD content-assertion scenarios for <code>/document</code> convergence (claimed as a deliverable; not confirmed in this subsystem's source).</p><nav class="footer-pager"><a href="13-cost-telemetry-and-d1.html"><div class="dir">← Previous · 13</div><div class="ttl">Cost telemetry & D1</div></a><a class="next" href="15-screenshots.html"><div class="dir">Next · 15 →</div><div class="ttl">Screenshots</div></a></nav>
+</main>
+</div>
+</body>
+</html>

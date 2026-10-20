@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>16. Supply-chain — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">16 / 16 — Supply-chain</span><div class="spacer"></div><div class="pager"><a href="15-screenshots.html">← Screenshots</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="current" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 16 of 16</div><h1>Supply-chain</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_16.png" alt="Detail diagram for Supply-chain"><figcaption>Figure 16 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>Integrates the external <code>depaudit</code> dependency-audit gate into ADW. During target-repo onboarding ADW runs <code>depaudit setup</code> (which scaffolds the gate, baselines findings, and installs the CI workflow) and propagates the <code>SOCKET_API_TOKEN</code> and <code>SLACK_WEBHOOK_URL</code> secrets from ADW's environment into the target repo's GitHub Actions secrets. ADW also ships the <code>depaudit-triage</code> Claude Code skill for interactively reviewing the findings the gate produces. The <code>depaudit</code> tool itself (scan/lint/gate logic, config schemas, OSV/Socket adapters) lives in an external repo (<code>github.com/paysdoc/depaudit</code>); ADW only orchestrates its setup and consumes its findings.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Run <code>depaudit setup</code> in the target repo's worktree during init, failing soft if the binary is absent.</li>
+<li>Resolve the owner/repo coordinates for the secret target (from <code>config.targetRepo</code>, else <code>getRepoInfo()</code> fallback).</li>
+<li>Propagate <code>SOCKET_API_TOKEN</code> and <code>SLACK_WEBHOOK_URL</code> from ADW's process env to the target repo's GitHub Actions secrets via <code>gh secret set</code>, skipping any unset secret and recording warnings/skips.</li>
+<li>Provide the <code>depaudit-triage</code> skill (ADW-side only, <code>target: false</code>) that walks <code>.depaudit/findings.json</code> and writes acceptance entries / files issues.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/depauditSetup.ts</code></td>
+<td>The <code>executeDepauditSetup</code> phase: runs <code>depaudit setup</code>, propagates the two secrets, returns a result struct.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/__tests__/depauditSetup.test.ts</code></td>
+<td>Vitest unit tests covering invocation cwd, soft-fail on missing binary, per-secret propagation/skip, gh failure tolerance, and getRepoInfo fallback.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>.claude/skills/depaudit-triage/SKILL.md</code></td>
+<td>The interactive triage skill (Claude Code) consuming <code>.depaudit/findings.json</code> and editing <code>.depaudit.yml</code> / <code>osv-scanner.toml</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/index.ts</code>, <code>adws/workflowPhases.ts</code></td>
+<td>Barrel re-exports of <code>executeDepauditSetup</code> and its types.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/checkGitGhGuard.ts</code> (line ~59)</td>
+<td>Allowlists <code>depauditSetup.ts</code> as a known direct <code>gh</code>-invoking module (via injected <code>execWithRetry</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>specs/prd/depaudit.md</code></td>
+<td>Orienting PRD (external-tool design + ADW integration contract).</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<p><code>executeDepauditSetup(config: WorkflowConfig, deps?)</code>:
+<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Merges injected <code>deps</code> over <code>DEFAULT_DEPS</code> (<code>execWithRetry</code>, <code>log</code>, <code>getEnv = name =&gt; process.env[name]</code>) for testability.
+<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>Runs <code>execWithRetry('depaudit setup', { cwd: config.worktreePath, maxAttempts: 2 })</code>. On throw (e.g. binary not installed), logs a <code>warn</code> with the message <code>depaudit setup failed: … Continuing — ensure 'npm install -g depaudit' is present on the ADW host.</code>, pushes it to <code>warnings</code>, and continues — never throws.
+<a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>Resolves <code>ownerRepo</code>: <code>${config.targetRepo.owner}/${config.targetRepo.repo}</code> when <code>targetRepo</code> is set, otherwise <code>${getRepoInfo().owner}/${getRepoInfo().repo}</code>.
+<a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>For each of <code>['SOCKET_API_TOKEN', 'SLACK_WEBHOOK_URL']</code>, calls <code>propagateSecret</code>: reads <code>deps.getEnv(name)</code>; if unset → returns a skip warning <code>&lt;name&gt; not set — skipping gh secret set</code>; if set → runs <code>execWithRetry('gh secret set &lt;name&gt; --repo &lt;ownerRepo&gt; --body -', { input: value, maxAttempts: 3 })</code> and logs <code>success</code>. On <code>gh</code> failure → returns warning <code>Failed to set &lt;name&gt; on &lt;ownerRepo&gt;: &lt;error&gt;</code>.
+<a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">5. </a>Skipped/failed secrets are pushed to <code>skippedSecrets</code> and their warnings to <code>warnings</code>.
+<a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">6. </a>Always returns <code>{ success: true, warnings, skippedSecrets }</code> — the phase is intentionally non-fatal (success is unconditional).</p>
+<p>Note: as of this snapshot, <code>executeDepauditSetup</code> is defined, exported, tested, and allowlisted in the gh guard, but no orchestrator/init script in <code>adws/</code> calls it yet — there is no live <code>adwInit.tsx</code> invocation in-tree. Per PRD it is intended to run as a post-clone step of <code>adw_init</code>.</p>
+<p><code>depaudit-triage</code> skill flow: reads <code>.depaudit/findings.json</code> (static snapshot, read once), filters to <code>classification === "new"</code>, idempotency-skips findings whose existing accept entry already has a non-empty <code>upstreamIssue</code>, then per finding presents four actions — (1) upgrade parent (autonomous minor/patch manifest edit + install with one cancel prompt; major → files a tracked issue on the current repo via <code>gh issue create</code> with <code>/adw_sdlc</code> in the body plus a short-lived accept entry), (2) accept+document, (3) accept+file-upstream-issue (<code>gh issue create --repo &lt;dep-owner&gt;/&lt;dep-repo&gt;</code>), (4) skip. Accept entries are written to <code>.depaudit.yml</code> (<code>supplyChainAccepts</code>, Socket source) or <code>osv-scanner.toml</code> (<code>[[IgnoredVulns]]</code>, OSV source). The skill never re-runs <code>depaudit scan</code>.</p>
+<h2>Data Structures</h2>
+<ul>
+<li><code>DepauditSetupDeps</code> — <code>{ execWithRetry?, log?, getEnv? }</code> (all optional; injected for tests).</li>
+<li><code>DepauditSetupResult</code> — <code>{ success: boolean; warnings: string[]; skippedSecrets: string[] }</code>.</li>
+<li><code>SECRET_NAMES</code> — const tuple <code>['SOCKET_API_TOKEN', 'SLACK_WEBHOOK_URL']</code>; <code>SecretName</code> is its element type.</li>
+<li><code>DEFAULT_DEPS</code> — <code>Required&lt;DepauditSetupDeps&gt;</code> defaults.</li>
+<li>Consumed (external, not defined here): <code>.depaudit/findings.json</code> (array of findings with <code>classification</code>, <code>package</code>, <code>version</code>, <code>finding-id</code>, <code>severity</code>, <code>source</code>), <code>.depaudit.yml</code>, <code>osv-scanner.toml</code>, <code>.github/workflows/depaudit-gate.yml</code> — all scaffolded/owned by the external <code>depaudit</code> tool.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li><code>executeDepauditSetup(config: WorkflowConfig, deps?: DepauditSetupDeps): Promise&lt;DepauditSetupResult&gt;</code> (re-exported from <code>adws/phases/index.ts</code> and <code>adws/workflowPhases.ts</code>).</li>
+<li>Exported types <code>DepauditSetupResult</code>, <code>DepauditSetupDeps</code>.</li>
+<li><code>/depaudit-triage</code> Claude Code skill (invoked interactively, not programmatically; <code>target: false</code> so not copied into target repos).</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><code>adws/core</code> — <code>execWithRetry</code>, <code>log</code>, <code>LogLevel</code> (Agent execution / Config &amp; Environment plumbing).</li>
+<li><code>adws/github</code> — <code>getRepoInfo()</code> (GitContext) for the fallback owner/repo.</li>
+<li><code>./workflowInit</code> — <code>WorkflowConfig</code> type (Phases &amp; orchestrators), specifically <code>worktreePath</code> and optional <code>targetRepo: TargetRepoInfo</code>.</li>
+<li>External <code>depaudit</code> CLI on the ADW host PATH; <code>gh</code> CLI authenticated against the target repo.</li>
+<li>Process env (ADW <code>.env</code>): <code>SOCKET_API_TOKEN</code>, <code>SLACK_WEBHOOK_URL</code>.</li>
+<li>Downstream (depended on by):</li>
+<li>Re-export barrels (<code>phases/index.ts</code>, <code>workflowPhases.ts</code>); intended caller is <code>adw_init</code> (not wired in this snapshot).</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</td>
+<td>in</td>
+<td>Reads <code>SOCKET_API_TOKEN</code> / <code>SLACK_WEBHOOK_URL</code> from <code>process.env</code> (ADW <code>.env</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</td>
+<td>in</td>
+<td><code>getRepoInfo()</code> fallback owner/repo; <code>gh secret set</code> operates on the resolved repo.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</td>
+<td>in</td>
+<td><code>execWithRetry</code> (with retry/backoff + non-retryable patterns) wraps both <code>depaudit setup</code> and <code>gh secret set</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>both</td>
+<td>Consumes <code>WorkflowConfig</code> (<code>worktreePath</code>, <code>targetRepo</code>); intended to run as an <code>adw_init</code> phase; surfaced via phase barrels.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="12-framework-self-upgrade.html" title="12. Framework self-upgrade">12. </a>Framework self-upgrade</td>
+<td>in (skill)</td>
+<td>Major-bump triage files an issue containing <code>/adw_sdlc</code>, re-entering the SDLC (and on upstream ADW-registered repos, the auto-pickup loop).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Claude Code skill layer</td>
+<td>n/a</td>
+<td><code>depaudit-triage</code> is an interactive skill operating on <code>.depaudit/findings.json</code> and config files.</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li>PRD §"ADW Integration" / story 11 states <code>adwInit.tsx</code> calls <code>depaudit setup</code> and propagates the secrets as a post-clone step. In the source, the <code>executeDepauditSetup</code> phase exists, is tested, and is gh-guard allowlisted, but no init/orchestrator file actually invokes it yet — the wiring into <code>adw_init</code> is not present in this snapshot.</li>
+<li>PRD describes secret values "surfaced by ADW's <code>.env</code>"; the phase reads them via <code>process.env</code> directly (consistent, but the <code>.env</code> is only loaded if the caller has done so — there is no explicit dotenv load inside the phase).</li>
+<li>All scan/lint/gate/PR-comment/Slack/auto-prune behavior described in the PRD is owned by the external <code>depaudit</code> tool, not by any ADW source in this subsystem (out of scope for ADW's integration code).</li>
+</ul><nav class="footer-pager"><a href="15-screenshots.html"><div class="dir">← Previous · 15</div><div class="ttl">Screenshots</div></a><a class="next" href="index.html"><div class="dir">Back to top ↑</div><div class="ttl">Architecture overview</div></a></nav>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>11. Auto-merge / HITL + resilience queues — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">11 / 16 — Auto-merge / HITL + resilience queues</span><div class="spacer"></div><div class="pager"><a href="10-triggers.html">← Triggers</a><a href="12-framework-self-upgrade.html">Framework self-upgrade →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="current" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 11 of 16</div><h1>Auto-merge / HITL + resilience queues</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_11.png" alt="Detail diagram for Auto-merge / HITL + resilience queues"><figcaption>Figure 11 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The governance + pause/resume layer. It (a) decides whether a PR may be merged automatically — a stateless gate that requires <code>(no hitl label) OR (PR approved)</code> — and runs the conflict-resolving merge; and (b) keeps the fleet alive across rate-limit/billing stalls and host-wide auth loss via durable pause queues plus cron scanners that probe, resume, and notify. It also reaps orphaned dev-server processes.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Stateless auto-merge gate: silently skip when <code>hitl</code> label present and PR unapproved; apply <code>hitl</code> + post one-time comment on first unapproved encounter (in-process phase path).</li>
+<li>Merge orchestration: dry-run conflict detection, <code>/resolve_conflict</code> agent retries (up to <code>MAX_AUTO_MERGE_ATTEMPTS=3</code>), push, <code>gh pr merge</code>; non-conflict failures stop retries.</li>
+<li><code>adwMerge.tsx</code> handoff for the <code>awaiting_merge</code> stage: resolve branch→PR, handle MERGED/CLOSED/OPEN, escalate to <code>merge_blocked</code> (human <code>## Retry</code> recovers) or <code>discarded</code>.</li>
+<li>HITL board notifier: Slack messages on In-Review / discarded / review-error transitions (only when issue carries <code>hitl</code>).</li>
+<li>Label lifecycle: provision and apply the <code>adw:*</code> label set; the <code>hitl</code> label is the human-gating flag.</li>
+<li>Rate-limit/billing pause queue (<code>agents/paused_queue.json</code>) + cron scanner that probes Claude and resumes.</li>
+<li>Host-wide auth gate (<code>agents/.auth_gate</code>) + auth-pause handler + auth-queue scanner that resumes <code>paused_auth</code> orchestrators after re-login; Slack detection/recovery alerts with cooldown.</li>
+<li>Dev-server janitor: cron sweep killing orphaned dev-server process groups; <code>withDevServer</code> lifecycle helper.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/phases/autoMergePhase.ts</td>
+<td>In-process auto-merge phase; hitl gate + approval gate + merge</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/adwMerge.tsx</td>
+<td>Standalone merge orchestrator for <code>awaiting_merge</code> handoff</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/triggers/autoMergeHandler.ts</td>
+<td><code>mergeWithConflictResolution</code> retry loop (conflict detect → <code>/resolve_conflict</code> → push → merge)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/phases/authPause.ts</td>
+<td><code>handleAuthRequiredPause</code> / <code>markStatePausedAuthForLiveOrchestrator</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/phases/workflowCompletion.ts</td>
+<td><code>handleRateLimitPause</code> — enqueues to pause queue, writes <code>paused</code>, exits 0</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/core/pauseQueue.ts</td>
+<td>Atomic read/append/remove/update on <code>agents/paused_queue.json</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/core/authGate.ts</td>
+<td><code>agents/.auth_gate</code> record; Slack-cooldown predicate</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/core/slackNotifier.ts</td>
+<td><code>postSlack</code> + auth detection/recovery payloads</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/core/devServerLifecycle.ts</td>
+<td><code>withDevServer</code> spawn→probe→work→kill (no production consumers wired)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/triggers/pauseQueueScanner.ts</td>
+<td><code>scanPauseQueue</code> / <code>resumeWorkflow</code> — probe rate-limit, respawn</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/triggers/scanAuthQueue.ts</td>
+<td><code>scanAuthQueue</code> — resume <code>paused_auth</code> via takeover branch 5</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/triggers/devServerJanitor.ts</td>
+<td><code>runJanitorPass</code> — kill orphaned worktree processes</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/github/hitlBoardNotifier.ts</td>
+<td><code>notifyReviewTransition</code> / <code>notifyBlockedTransition</code> Slack delivery</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/github/labelManager.ts</td>
+<td><code>adw:*</code> label definitions + <code>ensureAdwLabelsExist</code> / <code>applyLabel</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>adws/triggers/trigger_cron.ts</td>
+<td>Wires <code>handleAuthGateTick</code>, <code>scanPauseQueue</code>, <code>scanAuthQueue</code>, <code>runJanitorPass</code> into the cron tick</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<p><strong>Auto-merge gate (stateless).</strong> Both <code>autoMergePhase</code> and <code>adwMerge.executeMerge</code> re-evaluate live label + approval state every entry. <code>adwMerge</code> unified gate (step 5b): if <code>hitl</code> on issue AND PR not approved → log + return, no state write/comment. <code>autoMergePhase</code>: if <code>hitl</code> present → silent skip; else if no APPROVED review → apply <code>hitl</code>, post one-time comment, exit. When the gate passes, <code>mergeWithConflictResolution</code> runs.</p>
+<p><strong>Merge loop.</strong> <code>syncWorktreeToOriginHead</code> → up to 3 attempts: <code>checkMergeConflicts</code> (dry-run <code>git merge --no-commit</code>), on conflict invoke <code>/resolve_conflict</code> (sonnet) agent, push branch, <code>gh pr merge</code>. <code>isMergeConflictError</code> distinguishes retryable conflict races from terminal failures. <code>adwMerge</code> outcomes: MERGED→<code>completed</code>; CLOSED→<code>discarded</code> (+ <code>notifyBlockedTransition</code>); merge-fail→<code>merge_blocked</code> (recover via <code>## Retry</code>); no-PR after 3 attempts→<code>merge_blocked</code>.</p>
+<p><strong>Rate-limit pause/resume.</strong> A phase agent throwing <code>RateLimitError</code> (Claude stream rate-limit text) → <code>phaseRunner</code> → <code>handleRateLimitPause</code>: writes <code>paused</code>, appends <code>{adwId, issueNumber, orchestratorScript, pausedAtPhase, worktreePath, branchName, extraArgs(--target-repo)}</code> to pause queue, posts <code>paused</code> comment, exits 0. <code>scanPauseQueue</code> (every <code>PROBE_INTERVAL_CYCLES=15</code> cron cycles): runs <code>claude --print "ping" --model haiku</code> → <code>clear</code>/<code>limited</code>/<code>unknown</code>. <code>clear</code>→<code>resumeWorkflow</code> (verify worktree exists, acquire spawn lock, confirm canonical adwId, respawn detached, await 2 s readiness, remove from queue, post <code>resumed</code>). <code>unknown</code> increments <code>probeFailures</code>; at <code>MAX_UNKNOWN_PROBE_FAILURES=3</code> removes + posts error.</p>
+<p><strong>Auth gate pause/resume.</strong> Agent OAuth-expiry → <code>AuthRequiredError</code> → <code>handleAuthRequiredPause</code>: <code>writeAuthGate</code>, state <code>paused_auth</code>, exit 0. On each cron tick <code>handleAuthGateTick</code>: if gate set, run <code>claude auth status --json</code>. Logged-in→<code>clearAuthGate</code>, <code>scanAuthQueue</code> (rewrite each <code>paused_auth</code>→<code>abandoned</code>, route through takeover branch 5, respawn with original adwId), Slack recovery. Not-logged-in→SIGTERM live orchestrators + mark <code>paused_auth</code>, send Slack detection (cooldown <code>SLACK_DETECTION_COOLDOWN_MS=2h</code>). Auth-gate tick short-circuits the rest of the cron tick.</p>
+<p><strong>Dev-server janitor.</strong> <code>runJanitorPass</code> (every <code>JANITOR_INTERVAL_CYCLES=15</code>): discover worktrees under <code>TARGET_REPOS_DIR</code>, <code>lsof</code> for live processes, <code>shouldCleanWorktree</code> keeps them only if (non-terminal stage AND orchestrator alive) OR age ≤ 30 min grace; else SIGTERM→SIGKILL the process group.</p>
+<h2>Data Structures</h2>
+<ul>
+<li><code>PausedWorkflow</code> (pauseQueue.ts): <code>{ adwId, issueNumber, orchestratorScript, pausedAtPhase, pauseReason: 'rate_limited'|'unknown_error', pausedAt, lastProbeAt?, probeFailures?, worktreePath, branchName, extraArgs? }</code>.</li>
+<li><code>AuthGateRecord</code> (authGate.ts): <code>{ firstDetectedAt, lastDetectedAt, lastSlackNotifiedAt, host, lastDetectedBy: {adwId, issueNumber, agentName} }</code>.</li>
+<li><code>DevServerConfig</code> <code>{ startCommand, port, healthPath, cwd }</code>; <code>WorktreeCandidate</code> <code>{ worktreePath, dirName }</code>; <code>JanitorDeps</code> (injectable OS seam).</li>
+<li><code>MergeRunResult</code> <code>{ outcome: 'completed'|'abandoned', reason }</code>; <code>MergeDeps</code> (injectable seam).</li>
+<li><code>adw:*</code> label set: chore/bug/feature/pr_review/upgrade/none/unverified/blocked (with <code>name,color,description</code>). <code>hitl</code> is referenced by name (not in this canonical set).</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li><code>executeAutoMergePhase(config)</code> → <code>{costUsd, modelUsage, phaseCostRecords}</code>.</li>
+<li><code>executeMerge(issueNumber, adwId, repoInfo, baseRepoPath, deps)</code> → <code>MergeRunResult</code>.</li>
+<li><code>mergeWithConflictResolution(prNumber, repoInfo, headBranch, baseBranch, worktreePath, adwId, logsDir, specPath)</code> → <code>{success, error?}</code>; <code>isMergeConflictError(s)</code>.</li>
+<li>pauseQueue: <code>readPauseQueue / appendToPauseQueue / removeFromPauseQueue / updatePauseQueueEntry</code>.</li>
+<li><code>scanPauseQueue(cycleCount)</code>, <code>resumeWorkflow(entry)</code>, <code>resolveEntryRepoInfo(entry)</code>.</li>
+<li>authGate: <code>readAuthGate / writeAuthGate / clearAuthGate / markGateSlackNotified / shouldSendDetectionSlack</code>.</li>
+<li><code>handleAuthRequiredPause(config, err, costUsd?, modelUsage?)</code>, <code>markStatePausedAuthForLiveOrchestrator(adwId)</code>, <code>handleRateLimitPause(...)</code>.</li>
+<li><code>scanAuthQueue(cronRepoInfo, targetRepoArgs, takeoverDeps?, deps?)</code> → resumed count.</li>
+<li><code>runJanitorPass(deps?)</code>, <code>shouldCleanWorktree(...)</code>, <code>withDevServer(config, work)</code>.</li>
+<li><code>notifyReviewTransition(args, deps?)</code>, <code>notifyBlockedTransition(args, deps?)</code>.</li>
+<li>labelManager: <code>ensureAdwLabelsExist</code>, <code>applyLabel</code>, <code>readAdwLabels</code>, <code>issueTypeToAdwLabel</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li>Agent execution <a class="xref" href="04-agent-execution.html" title="<a class="xref" href="04-agent-execution.html" title="04. Agent execution">04. </a>Agent execution">(<a class="xref" href="04-agent-execution.html" title="04. Agent execution">#4</a>)</a> — <code>RateLimitError</code>/<code>AuthRequiredError</code> thrown from Claude stream; <code>/resolve_conflict</code> agent run.</li>
+<li>State &amp; ADW ID <a class="xref" href="02-state-and-adw-id.html" title="<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">02. </a>State & ADW ID">(<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">#2</a>)</a> — <code>AgentStateManager</code> top-level/orchestrator state, <code>paused</code>/<code>paused_auth</code>/<code>awaiting_merge</code>/<code>merge_blocked</code> stages.</li>
+<li>GitContext <a class="xref" href="03-gitcontext.html" title="<a class="xref" href="03-gitcontext.html" title="03. GitContext">03. </a>GitContext">(<a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a>)</a> / Provider abstraction <a class="xref" href="06-provider-abstraction.html" title="<a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">06. </a>Provider abstraction">(<a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">#6</a>)</a> — <code>gitContextForRepo</code>, <code>RepoInfo</code>/<code>repoContext</code>, <code>gh</code> PR/issue/label/merge calls.</li>
+<li>Config &amp; Environment <a class="xref" href="01-config-and-environment.html" title="<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">01. </a>Config & Environment">(<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">#1</a>)</a> — <code>PROBE_INTERVAL_CYCLES</code>, <code>MAX_UNKNOWN_PROBE_FAILURES</code>, <code>JANITOR_INTERVAL_CYCLES</code>, <code>MAX_AUTO_MERGE_ATTEMPTS</code>, <code>SLACK_WEBHOOK_URL</code>.</li>
+<li>Coordination kernel <a class="xref" href="09-coordination-kernel.html" title="<a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">09. </a>Coordination kernel">(<a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">#9</a>)</a> — spawn locks (<code>acquireIssueSpawnLock</code>), <code>evaluateCandidate</code> takeover, <code>findHungOrchestrators</code>.</li>
+<li>Downstream (depended on by):</li>
+<li>Triggers <a class="xref" href="10-triggers.html" title="<a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers">(<a class="xref" href="10-triggers.html" title="10. Triggers">#10</a>)</a> — <code>trigger_cron</code> invokes the scanners/janitor/auth-gate tick each cycle.</li>
+<li>Phases &amp; orchestrators <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a> — orchestrators call <code>handleRateLimitPause</code>/<code>handleAuthRequiredPause</code> and run <code>executeAutoMergePhase</code>.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Agent execution <a class="xref" href="04-agent-execution.html" title="<a class="xref" href="04-agent-execution.html" title="04. Agent execution">04. </a>Agent execution">(<a class="xref" href="04-agent-execution.html" title="04. Agent execution">#4</a>)</a></td>
+<td>in</td>
+<td><code>RateLimitError</code>/<code>AuthRequiredError</code> (Claude stream); <code>/resolve_conflict</code> agent invocation</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>State &amp; ADW ID <a class="xref" href="02-state-and-adw-id.html" title="<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">02. </a>State & ADW ID">(<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">#2</a>)</a></td>
+<td>in/out</td>
+<td>reads/writes workflow stages; pause-queue + auth-gate JSON sidecar files</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Triggers <a class="xref" href="10-triggers.html" title="<a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers">(<a class="xref" href="10-triggers.html" title="10. Triggers">#10</a>)</a></td>
+<td>in</td>
+<td>cron tick drives <code>scanPauseQueue</code>/<code>scanAuthQueue</code>/<code>runJanitorPass</code>/auth-gate handling</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Coordination kernel <a class="xref" href="09-coordination-kernel.html" title="<a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">09. </a>Coordination kernel">(<a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">#9</a>)</a></td>
+<td>in</td>
+<td>spawn locks, takeover branch 5 for auth-resume, hung-orchestrator sweep</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Phases &amp; orchestrators <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a></td>
+<td>in/out</td>
+<td>auto-merge phase invoked post-review; pause handlers called on errors</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Provider abstraction <a class="xref" href="06-provider-abstraction.html" title="<a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">06. </a>Provider abstraction">(<a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">#6</a>)</a> / GitContext <a class="xref" href="03-gitcontext.html" title="<a class="xref" href="03-gitcontext.html" title="03. GitContext">03. </a>GitContext">(<a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a>)</a></td>
+<td>out</td>
+<td><code>gh</code> label/PR/issue/merge ops via <code>RepoInfo</code>/<code>repoContext</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Cost telemetry &amp; D1 <a class="xref" href="13-cost-telemetry-and-d1.html" title="<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry & D1">(<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">#13</a>)</a></td>
+<td>out</td>
+<td><code>persistTokenCounts</code> on pause; <code>createPhaseCostRecords</code> for <code>auto_merge</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Triggers/Coordination</td>
+<td>out</td>
+<td>detached respawn of paused orchestrators (<code>bunx tsx &lt;script&gt; &lt;issue&gt; &lt;adwId&gt; --target-repo</code>)</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li><code>orchestrator-coordination-resilience.md</code> orients the pause-queue + auth-gate + hung-detector design; implementation matches at the level inspected (durable JSON queues, probe-and-resume, Slack cooldown).</li>
+<li><code>test-review-refactor.md</code> describes the dev-server lifecycle; <code>devServerLifecycle.withDevServer</code> exists but its own header notes "No production consumers are wired yet — pure infrastructure." The cron janitor (<code>runJanitorPass</code>) is the only live dev-server consumer and reaps orphans rather than managing a lifecycle.</li>
+</ul><nav class="footer-pager"><a href="10-triggers.html"><div class="dir">← Previous · 10</div><div class="ttl">Triggers</div></a><a class="next" href="12-framework-self-upgrade.html"><div class="dir">Next · 12 →</div><div class="ttl">Framework self-upgrade</div></a></nav>
+</main>
+</div>
+</body>
+</html>

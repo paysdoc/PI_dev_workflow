@@ -1,0 +1,26 @@
+digraph G {
+  rankdir=LR; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, width=1.5, height=0.6, margin="0.08,0.05"];
+  edge [fontname="Helvetica", fontsize=8, color="#999999", fontcolor="#555555", arrowsize=0.6];
+  graph [ranksep=1.6, nodesep=0.18];
+  9 [label="9. Coordination\nkernel", fillcolor="#7a2f4a", fontcolor="white", color="#111111", penwidth=3];
+
+  2 [label="2. State &\nADW ID", fillcolor="#33485ebb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  3 [label="3. GitContext", fillcolor="#2f6b6bbb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  4 [label="4. Agent\nexecution", fillcolor="#2f6b6bbb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  7 [label="7. Phases &\norchestrators", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  10 [label="10. Triggers", fillcolor="#214d8abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  11 [label="11. Auto-merge / HITL\n+ resilience", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  9 -> 2 [label="pid/lastSeenAt liveness", color="#7a2f4a", penwidth=1.4];
+  9 -> 3 [label="worktree reset, ls-remote", color="#7a2f4a", penwidth=1.4];
+  9 -> 4 [label="branch-slug gen", color="#7a2f4a", penwidth=1.4];
+  7 -> 9 [label="lock + heartbeat wrap", color="#2f6b6b", penwidth=1.4, style=dashed];
+  11 -> 9 [label="spawn locks, takeover", color="#2f6b6b", penwidth=1.4, style=dashed];
+  10 -> 9 [label="spawnGate, takeover", color="#2f6b6b", penwidth=1.4, style=dashed];
+}

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>02. State & ADW ID — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">02 / 16 — State & ADW ID</span><div class="spacer"></div><div class="pager"><a href="01-config-and-environment.html">← Config & Environment</a><a href="03-gitcontext.html">GitContext →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="current" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 02 of 16</div><h1>State & ADW ID</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_2.png" alt="Detail diagram for State & ADW ID"><figcaption>Figure 2 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The persistence substrate for ADW workflows. It mints the per-run identity (the <code>adwId</code>), owns the on-disk layout under <code>agents/{adwId}/</code>, and provides the read/write/merge helpers for both the <strong>top-level workflow state file</strong> (<code>agents/{adwId}/state.json</code>) and <strong>per-agent state files</strong> (<code>agents/{adwId}/{agentName}/state.json</code>). This file substrate is what enables phase chaining, resume/recovery, and out-of-band liveness queries across separate process invocations.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Generate a unique <code>adwId</code> per workflow run (random base36 + slug or timestamp).</li>
+<li>Define and persist the top-level state schema (<code>pid</code>, <code>pidStartedAt</code>, <code>lastSeenAt</code>, <code>workflowStage</code>, <code>phases</code>, <code>repoIdentity</code>, <code>orchestratorScript</code>, plan/branch/issue fields).</li>
+<li>Atomic, merge-aware writes to the top-level state file; shallow-merge top-level fields, deep-merge the <code>phases</code> map (per-entry, never clobbering siblings).</li>
+<li>Per-agent state directory init, write/read/merge, execution-log append, raw JSON/JSONL output, parent-state traversal for nested agents.</li>
+<li>Helpers to locate the orchestrator's state directory for a given <code>adwId</code> and answer "is this run's process still alive?" (delegating the PID predicate to <code>processLiveness</code>).</li>
+<li>Define the <code>WorkflowStage</code> and <code>PRReviewWorkflowStage</code> taxonomies, <code>RecoveryState</code>, and execution-status types.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/adwId.ts</code></td>
+<td><code>generateAdwId(summary?)</code> and <code>slugify(text)</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/agentState.ts</code></td>
+<td><code>AgentStateManager</code> class: per-agent + top-level state I/O, atomic write, merge semantics.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/stateHelpers.ts</code></td>
+<td><code>findOrchestratorStatePath</code>, <code>isAgentProcessRunning</code>, <code>createExecutionState</code>, <code>completeExecution</code>, deprecated <code>isProcessAlive</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/processLiveness.ts</code></td>
+<td><code>getProcessStartTime(pid)</code>, <code>isProcessLive(pid, recordedStartTime)</code> — PID-reuse-safe liveness.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/orchestratorLib.ts</code></td>
+<td><code>deriveOrchestratorScript</code> / <code>orchestratorNamesForScript</code> — name↔script mapping used to disambiguate orchestrator dirs.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/types/agentTypes.ts</code></td>
+<td><code>AgentState</code>, <code>AgentExecutionState</code>, <code>PhaseExecutionState</code>, <code>RepoIdentity</code>, <code>AgentIdentifier</code>, status types.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/types/workflowTypes.ts</code></td>
+<td><code>WorkflowStage</code>, <code>PRReviewWorkflowStage</code>, <code>RecoveryState</code> taxonomies.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/types/dataTypes.ts</code></td>
+<td>Back-compat re-export barrel for the type modules.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/environment.ts</code></td>
+<td>Defines <code>AGENTS_STATE_DIR = cwd()/agents</code> (the root of the layout).</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ul>
+<li><strong>ID minting</strong>: <code>generateAdwId(summary?)</code> → <code>{6-char base36 random}-{slug≤20}</code> when a summary is given, else <code>{random}-{Date.now()}</code>. The <code>adw-</code> prefix is added later by the branch-name template, not here.</li>
+<li><strong>On-disk layout</strong>: top-level state at <code>agents/{adwId}/state.json</code>; each agent's state at <code>agents/{adwId}/{agentName}/state.json</code>; nested agents nest under their parent's path.</li>
+<li><strong>Top-level write (<code>writeTopLevelState</code>)</strong>: ensures the dir exists, reads existing JSON (empty object on corrupt/missing), shallow-merges new fields, and <strong>deep-merges <code>phases</code></strong> (each phase entry spread-merged over the prior entry). Persisted via <code>atomicWriteJson</code> (write <code>.tmp</code>, then <code>rename</code>).</li>
+<li><strong>Top-level read (<code>readTopLevelState</code>)</strong>: returns parsed <code>AgentState</code> or <code>null</code> on missing/corrupt file. Pre-schema files missing <code>pid</code>/<code>pidStartedAt</code>/<code>lastSeenAt</code>/<code>branchName</code>/<code>repoIdentity</code> read back cleanly (fields <code>undefined</code>).</li>
+<li><strong>Per-agent write (<code>writeState</code>)</strong>: read-merge-write to <code>state.json</code> (non-atomic; shallow merge only).</li>
+<li><strong>Orchestrator-dir resolution (<code>findOrchestratorStatePath</code>)</strong>: scans <code>agents/{adwId}/*</code> for subdirs whose <code>state.json.agentName</code> ends in <code>-orchestrator</code>. If multiple match (e.g. a failed <code>init-orchestrator</code> shadowing the real one after an <code>adwId</code> reuse, #529), prefers the one whose <code>agentName</code> maps to the top-level <code>orchestratorScript</code>; else falls back to the first candidate.</li>
+<li><strong>Liveness (<code>isAgentProcessRunning</code>)</strong>: resolves the orchestrator dir, reads <code>pid</code> + <code>pidStartedAt</code>, and calls <code>processLiveness.isProcessLive</code> (requires <code>kill -0</code> success AND exact start-time match — closes the PID-reuse hazard). Returns false if any link is missing.</li>
+<li><strong>Heartbeat / phase writes</strong> (owned by other subsystems but mutating this state): the heartbeat ticker writes <code>lastSeenAt</code>; the phase runner writes <code>phases[name]</code> entries and <code>pid</code>/<code>pidStartedAt</code> at launch.</li>
+</ul>
+<h2>Data Structures</h2>
+<ul>
+<li><strong><code>AgentState</code></strong> (top-level and per-agent shape): <code>adwId</code>, <code>issueNumber|null</code>, <code>agentName</code>, <code>execution: AgentExecutionState</code>, optional <code>branchName</code>, <code>planFile</code>, <code>issueClass</code>, <code>pid</code>, <code>pidStartedAt</code>, <code>lastSeenAt</code>, <code>workflowStage</code>, <code>mergeRetryCount</code>, <code>resumeAttempts</code>, <code>phases: Record&lt;string, PhaseExecutionState&gt;</code>, <code>repoIdentity</code>, <code>orchestratorScript</code>, <code>parentAgent</code>, <code>output</code>, <code>metadata</code>.</li>
+<li><strong><code>PhaseExecutionState</code></strong>: <code>status</code> (<code>pending|running|completed|failed</code>), <code>startedAt</code>, optional <code>completedAt</code>, <code>output</code>, <code>failureReason</code> (canonical <code>'agent_timeout'</code>).</li>
+<li><strong><code>AgentExecutionState</code></strong>: <code>status</code> (<code>pending|running|completed|failed|paused</code>), <code>startedAt</code>, optional <code>completedAt</code>, <code>errorMessage</code>.</li>
+<li><strong><code>RepoIdentity</code></strong>: <code>{ owner, repo }</code> — launch-boundary cross-check only, not source of truth (#665).</li>
+<li><strong><code>WorkflowStage</code></strong>: large union of granular lifecycle stages (<code>starting</code>, <code>build_running</code>, <code>completed</code>, <code>error</code>, <code>paused</code>, <code>awaiting_merge</code>, <code>merge_blocked</code>, <code>human_gated</code>, <code>phase_timeout</code>, <code>discarded</code>, plus test/review/document/recovery variants). <code>RecoveryState</code>: resume context (<code>lastCompletedStage</code>, <code>adwId</code>, <code>branchName</code>, <code>planPath</code>, <code>prUrl</code>, <code>canResume</code>).</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li><code>generateAdwId(summary?)</code>, <code>slugify(text)</code>.</li>
+<li><code>AgentStateManager</code> statics: <code>initializeState</code>, <code>writeState</code>, <code>readState</code>, <code>appendLog</code>, <code>writeRawOutput</code>, <code>readParentState</code>, <code>getStatePath</code>, <code>stateExists</code>, <code>getTopLevelStatePath</code>, <code>readTopLevelState</code>, <code>writeTopLevelState</code>; delegated <code>createExecutionState</code>, <code>completeExecution</code>, <code>findOrchestratorStatePath</code>, <code>isAgentProcessRunning</code>, <code>getProcessStartTime</code>, <code>isProcessLive</code>.</li>
+<li>Convenience function exports: <code>initializeAgentState</code>, <code>writeAgentState</code>, <code>readAgentState</code>, <code>appendAgentLog</code>, <code>writeAgentRawOutput</code>, <code>readParentAgentState</code>.</li>
+<li><code>findOrchestratorStatePath</code>, <code>isAgentProcessRunning</code>, <code>createExecutionState</code>, <code>completeExecution</code> (from <code>stateHelpers</code>).</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><code>adws/core/environment.ts</code> <a class="xref" href="01-config-and-environment.html" title="<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">01. </a>Config & Environment">(<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment)</a> — <code>AGENTS_STATE_DIR</code> root path.</li>
+<li><code>adws/core/processLiveness.ts</code> — PID+start-time liveness predicate.</li>
+<li><code>adws/core/orchestratorLib.ts</code> — orchestrator name↔script mapping for dir disambiguation.</li>
+<li>Node <code>fs</code> / <code>path</code> / <code>child_process</code>.</li>
+<li>Downstream (depended on by): phase runner, all orchestrators, triggers (cron/webhook/retry/takeover/pause), heartbeat, hung-orchestrator detector, remote reconcile, workflow init/completion, git/branch phases, document &amp; merge workflows.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</td>
+<td>depends-on</td>
+<td><code>AGENTS_STATE_DIR</code> base path.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">5. </a>Phase runner &amp; cost-tracking composition</td>
+<td>called-by</td>
+<td>reads/writes <code>phases</code> map, <code>pid</code>/<code>pidStartedAt</code>, <code>workflowStage</code>; sets <code>failureReason='agent_timeout'</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>called-by</td>
+<td><code>generateAdwId</code>, top-level state init (<code>repoIdentity</code>, <code>orchestratorScript</code>, <code>pid</code>), <code>RecoveryState</code> consumption.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">9. </a>Coordination kernel</td>
+<td>called-by</td>
+<td>supplies <code>pid</code>/<code>pidStartedAt</code>/<code>lastSeenAt</code> and <code>isProcessLive</code>/<code>isAgentProcessRunning</code> for lock/liveness; heartbeat writes <code>lastSeenAt</code>; hung-detector reads stale-heartbeat state.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</td>
+<td>called-by</td>
+<td>cron/webhook/retry/takeover read top-level state + <code>findOrchestratorStatePath</code> to decide pickup/resume.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience queues</td>
+<td>called-by</td>
+<td><code>mergeRetryCount</code>, <code>resumeAttempts</code>, terminal stages (<code>merge_blocked</code>, <code>human_gated</code>, <code>awaiting_merge</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</td>
+<td>data-supplied-by</td>
+<td><code>repoIdentity</code> recorded from the launch boundary as a cross-check.</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<p>None observed. The implementation matches <code>specs/prd/orchestrator-coordination-resilience.md</code>: the four added top-level fields (<code>pid</code>, <code>pidStartedAt</code>, <code>lastSeenAt</code>, <code>branchName</code>), atomic <code>writeTopLevelState</code>, <code>processLiveness</code> semantics (Linux <code>/proc/&lt;pid&gt;/stat</code> field 22; macOS/BSD <code>ps -o lstart=</code>; Windows unsupported → false), and the <code>discarded</code> stage are all present. (Heartbeat and hung-detector modules referenced by the PRD live in <a class="xref" href="09-coordination-kernel.html" title="<a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">09. </a>Coordination kernel">subsystem 9</a>.)</p><nav class="footer-pager"><a href="01-config-and-environment.html"><div class="dir">← Previous · 01</div><div class="ttl">Config & Environment</div></a><a class="next" href="03-gitcontext.html"><div class="dir">Next · 03 →</div><div class="ttl">GitContext</div></a></nav>
+</main>
+</div>
+</body>
+</html>

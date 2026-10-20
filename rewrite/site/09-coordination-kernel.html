@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>09. Coordination kernel — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">09 / 16 — Coordination kernel</span><div class="spacer"></div><div class="pager"><a href="08-bdd-scenario-subsystem.html">← BDD / scenario subsystem</a><a href="10-triggers.html">Triggers →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="current" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 09 of 16</div><h1>Coordination kernel</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_9.png" alt="Detail diagram for Coordination kernel"><figcaption>Figure 9 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The single-host recovery / anti-split-brain layer. Guarantees that for any GitHub issue at most one orchestrator process runs at a time, that a crashed/wedged/duplicate orchestrator is deterministically detected and recovered, and that takeover always resumes from a known-clean worktree against the remote-derived stage. Grounded in three invariants: single-host-per-repo (deployment convention, not code-enforced), OS-level liveness (PID + start-time) is authoritative for "is it alive", and the remote (branch/PR) is authoritative for "how far did work get".</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Per-issue spawn lock (exclusive-create file lock keyed by <code>owner_repo_issue-N</code>), held for the orchestrator's full lifetime.</li>
+<li>PID + start-time liveness (<code>isProcessLive</code>) closing the PID-reuse hazard.</li>
+<li>Heartbeat ticker writing <code>lastSeenAt</code> every 30s, decoupled from phase progress.</li>
+<li>Hung-orchestrator detection (live PID + <code>*_running</code> stage + stale <code>lastSeenAt</code>) → SIGKILL + rewrite to <code>abandoned</code>.</li>
+<li>Stage-classification taxonomy (6 classes) routing recovery decisions.</li>
+<li>Bounded resume policy (cap automatic phase_timeout resumes at 3, then escalate to <code>human_gated</code>).</li>
+<li>Remote reconcile: derive authoritative <code>WorkflowStage</code> from branch/PR with read-your-write re-verification.</li>
+<li>Takeover decision tree: single entrypoint (<code>evaluateCandidate</code>) deciding spawn_fresh / take_over / defer / skip_terminal / escalate.</li>
+<li>Worktree probe → reuse-gate → reset: reuse a healthy worktree in place, else hard-reset to <code>origin/&lt;branch&gt;</code>.</li>
+<li>Branch-name resolution (persisted → recovery comment → deterministic identity fallback → LLM) and adwId reverse-lookup from branch.</li>
+<li>Repo-identity cross-check (launch boundary authoritative; refuse divergent resume).</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>adws/triggers/spawnGate.ts</code></td>
+<td>Per-issue spawn lock: exclusive-create, stale-lock reclaim via liveness, lock record (pid/pidStartedAt/repoKey/issue/startedAt).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/triggers/takeoverHandler.ts</code></td>
+<td><code>evaluateCandidate</code> — the full takeover decision tree; all I/O injected via <code>TakeoverDeps</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/orchestratorLock.ts</code></td>
+<td>Lifecycle wrappers (<code>runWithOrchestratorLifecycle</code>, <code>runWithRaw…</code>): lock-acquire → heartbeat-start → fn → stop → release.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/branchNameResolution.ts</code></td>
+<td><code>resolveWorkflowBranchName</code> 4-tier priority; persists name; LLM-fork guard (#524).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/branchIdentityFallback.ts</code></td>
+<td><code>findExistingBranchForIssue</code>, <code>recoverAdwIdForBranch</code> — slug-agnostic branch/adwId recovery.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/processLiveness.ts</code></td>
+<td><code>getProcessStartTime</code> / <code>isProcessLive</code> (Linux <code>/proc/&lt;pid&gt;/stat</code> field 22; macOS/BSD <code>ps -o lstart=</code>; Windows unsupported).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/heartbeat.ts</code></td>
+<td><code>startHeartbeat</code>/<code>stopHeartbeat</code> setInterval writing <code>lastSeenAt</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/hungOrchestratorDetector.ts</code></td>
+<td><code>findHungOrchestrators</code> — pure query, no side effects.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/stageClassifier.ts</code></td>
+<td><code>classifyStage</code> (exhaustive over union) + <code>classifyStageString</code> (dynamic <code>*_running</code>/<code>*_completed</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/resumePolicy.ts</code></td>
+<td><code>nextResumeAction</code>, <code>MAX_RESUME_ATTEMPTS=3</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/remoteReconcile.ts</code></td>
+<td><code>deriveStageFromRemote</code>, <code>mapArtifactsToStage</code>, re-verification retries.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/repoIdentityCrossCheck.ts</code></td>
+<td><code>crossCheckRepoIdentity</code>, <code>RepoIdentityMismatchError</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/vcs/worktreeProbe.ts</code></td>
+<td><code>probeWorktree</code> (Class-A git-operability signals), <code>clearOrphanedIndexLock</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/vcs/worktreeReuseGate.ts</code></td>
+<td><code>decideWorktreeReuse</code> — pure reuse/reset decision + typed reasons + <code>WorktreeProbe</code> type.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/vcs/worktreeReset.ts</code></td>
+<td>Vestigial — reset I/O migrated to <code>GitContext.resetWorktree</code> (#662); no exports.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/vcs/branchIdentity.ts</code></td>
+<td><code>deterministicBranchName</code>, <code>branchMatchesIssue</code> (slug-free, issue-boundary-exact).</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<p><strong>Spawn lock.</strong> <code>acquireIssueSpawnLock</code> writes the record with <code>wx</code> (exclusive). On <code>EEXIST</code>, reads existing: if holder is live (<code>isProcessLive</code>) → return false; else remove stale lock and re-create. Lock file persists across crashes (abnormal-exit handlers call <code>process.exit</code> so <code>finally</code> release does not run); the next caller reclaims via the dead-PID staleness check. <code>orchestratorLock.ts</code> wraps fn lifecycle and returns false if the lock is contended (caller exits 0).</p>
+<p><strong>Hung sweep</strong> (cron, every <code>HUNG_DETECTOR_INTERVAL_CYCLES</code>=5 cycles, <code>runHungDetectorSweep</code> in trigger_cron): <code>findHungOrchestrators(now, HEARTBEAT_STALE_THRESHOLD_MS=180_000)</code> returns entries with <code>*_running</code> stage + live PID + <code>lastSeenAt</code> older than threshold. Caller SIGKILLs each PID and rewrites state to <code>abandoned</code>. (Auth-gate tick separately SIGTERMs live orchestrators and marks <code>paused_auth</code>.)</p>
+<p><strong>Takeover decision tree</strong> (<code>evaluateCandidate</code>, ordered):
+<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Acquire spawn lock; on failure → <code>defer_live_holder</code> (with holder pid).
+<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>Resolve adwId from issue comments (<code>extractLatestAdwId</code>); null → <code>spawn_fresh</code>.
+<a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>Read top-level state; null → <code>spawn_fresh</code>.
+<a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Classify <code>state.workflowStage</code>:
+   - <code>terminal</code> (completed/discarded/paused/paused_auth) → release lock, <code>skip_terminal</code>.
+   - <code>retriable</code> (abandoned) → probe worktree → reuse-in-place if healthy else reset-from-remote → reconcile → <code>take_over_adwId</code>.
+   - <code>phase_timeout</code> → resume cap (#639): if <code>resumeAttempts &gt;= 3</code> write <code>human_gated</code> + comment + release → <code>escalate_human_gated</code>; else increment and run reuse-or-reset path.
+   - <code>active</code> (<code>*_running</code>/starting/resuming) → if recorded PID live, SIGKILL it; then reset-from-remote → reconcile → <code>take_over_adwId</code>.
+   - else (awaiting_merge/human_gated/resumable) → <code>spawn_fresh</code>.</p>
+<p><strong>Reuse-or-reset</strong> (<code>recoverViaResumeInPlaceOrReset</code>): <code>probeWorktree</code> gathers registration (healthy/locked/prunable/missing), index.lock state (absent/orphaned/live_held — orphaned iff lock present but recorded owner dead), interrupted op (rebase/merge/cherry_pick), HEAD-on-expected-branch, and liveOwner. <code>decideWorktreeReuse</code> returns reuse only if every signal healthy; any fault → typed reset reason. On reuse with orphaned lock, clears it before resuming. On reset, <code>recoverViaResetFromRemote</code> calls <code>GitContext.resetWorktree(path, branch)</code>.</p>
+<p><strong>Remote reconcile</strong> (<code>deriveStageFromRemote</code>): reads <code>branchName</code> from state; maps <code>(branchExists, prState)</code> → stage (no branch → null/state fallback; branch only → <code>branch_created</code>; OPEN → <code>awaiting_merge</code>; MERGED → <code>completed</code>; CLOSED → <code>discarded</code>). Mandatory re-read until two consecutive reads agree, up to <code>MAX_RECONCILE_VERIFICATION_RETRIES=3</code>; persistent divergence → state-file fallback. Guards GitHub read-your-write lag.</p>
+<p><strong>Branch-name resolution</strong> (<code>resolveWorkflowBranchName</code>): persisted state → recovery-comment branch → deterministic identity fallback (<code>findExistingBranchForIssue</code> matching <code>{prefix}-issue-{N}[-slug]</code>) → LLM (<code>runGenerateBranchNameAgent</code>, at most once per adwId). After LLM, re-reads persisted name; if it diverges, throws (#524, prevents orphan-worktree fork). <code>workflowInit</code> also reverse-recovers adwId via <code>recoverAdwIdForBranch</code> when the comment-based adwId is lost, and calls <code>crossCheckRepoIdentity(launch, persisted)</code> — throws <code>RepoIdentityMismatchError</code> on owner/repo mismatch (case-insensitive).</p>
+<h2>Data Structures</h2>
+<ul>
+<li><code>IssueSpawnLockRecord</code> <code>{ pid, pidStartedAt, repoKey, issueNumber, startedAt }</code> (file <code>spawn_locks/{owner}_{repo}_issue-{N}.json</code>).</li>
+<li><code>CandidateDecision</code> union: <code>spawn_fresh | take_over_adwId{adwId,derivedStage} | defer_live_holder{holderPid} | skip_terminal{adwId,terminalStage} | escalate_human_gated{adwId}</code>.</li>
+<li><code>StageClass</code>: <code>active | awaiting_merge | retriable | resumable | terminal | human_gated</code>.</li>
+<li><code>WorktreeProbe</code> <code>{ registration, indexLock, interruptedOp, headOnExpectedBranch, liveOwner }</code>; <code>WorktreeReuseDecision</code> (<code>reuse</code> true | false+reason); <code>WorktreeResetReason</code> (9 typed reasons).</li>
+<li><code>HungOrchestrator</code> <code>{ adwId, pid, pidStartedAt, lastSeenAt, workflowStage, issueNumber }</code>.</li>
+<li><code>HeartbeatHandle</code> <code>{ adwId, timer }</code>. <code>ResumeAction</code> = <code>resume | escalate</code>.</li>
+<li>State fields consumed/written: <code>pid</code>, <code>pidStartedAt</code>, <code>lastSeenAt</code>, <code>branchName</code>, <code>workflowStage</code>, <code>resumeAttempts</code>, <code>repoIdentity</code>.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>spawnGate: <code>acquireIssueSpawnLock</code>, <code>releaseIssueSpawnLock</code>, <code>readSpawnLockRecord</code>, <code>getSpawnLockFilePath</code>.</li>
+<li>orchestratorLock: <code>acquireOrchestratorLock</code>, <code>releaseOrchestratorLock</code>, <code>runWithOrchestratorLifecycle</code>, <code>runWithRawOrchestratorLifecycle</code>.</li>
+<li>takeoverHandler: <code>evaluateCandidate</code>, <code>buildDefaultTakeoverDeps</code>, <code>TakeoverDeps</code>, <code>CandidateDecision</code>.</li>
+<li>processLiveness: <code>getProcessStartTime</code>, <code>isProcessLive</code>.</li>
+<li>heartbeat: <code>startHeartbeat</code>, <code>stopHeartbeat</code>.</li>
+<li>hungOrchestratorDetector: <code>findHungOrchestrators</code>.</li>
+<li>stageClassifier: <code>classifyStage</code>, <code>classifyStageString</code>.</li>
+<li>resumePolicy: <code>nextResumeAction</code>, <code>MAX_RESUME_ATTEMPTS</code>.</li>
+<li>remoteReconcile: <code>deriveStageFromRemote</code>, <code>mapArtifactsToStage</code>, <code>buildDefaultReconcileDeps</code>.</li>
+<li>repoIdentityCrossCheck: <code>crossCheckRepoIdentity</code>, <code>sameRepoIdentity</code>, <code>RepoIdentityMismatchError</code>.</li>
+<li>worktreeProbe: <code>probeWorktree</code>, <code>clearOrphanedIndexLock</code>. worktreeReuseGate: <code>decideWorktreeReuse</code>.</li>
+<li>branchIdentity: <code>deterministicBranchName</code>, <code>branchMatchesIssue</code>.</li>
+<li>branchNameResolution: <code>resolveWorkflowBranchName</code>, <code>readPersistedBranchName</code>, <code>persistBranchName</code>.</li>
+<li>branchIdentityFallback: <code>findExistingBranchForIssue</code>, <code>recoverAdwIdForBranch</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><strong><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</strong> — <code>AgentStateManager</code> read/write top-level state; <code>generateAdwId</code>.</li>
+<li><strong><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</strong> — <code>gitContextForSync</code>, <code>worktreePathFor</code>, <code>resetWorktree</code>; raw git via <code>execSync</code>.</li>
+<li><strong><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</strong> — <code>AGENTS_STATE_DIR</code>, <code>HEARTBEAT_TICK_INTERVAL_MS</code>, <code>HEARTBEAT_STALE_THRESHOLD_MS</code>, <code>MAX_RESUME_ATTEMPTS</code>, <code>branchPrefixMap</code>/<code>Aliases</code>.</li>
+<li>GitHub API — <code>commentOnIssue</code>, <code>findPRByBranch</code>, <code>getRepoInfo</code>, <code>extractLatestAdwId</code> (cronStageResolver), <code>git ls-remote</code>.</li>
+<li><strong><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</strong> — <code>runGenerateBranchNameAgent</code> (LLM slug generation).</li>
+<li>Downstream (depended on by):</li>
+<li><strong><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</strong> — <code>trigger_cron</code>, <code>cronIssueFilter</code>, <code>webhookGatekeeper</code>, <code>scanAuthQueue</code> call <code>evaluateCandidate</code>/hung sweep.</li>
+<li><strong><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</strong> — all <code>adw*.tsx</code> entrypoints + <code>workflowInit</code> use the lock lifecycle, branch resolution, repo cross-check.</li>
+<li><strong><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience queues</strong> — pause/auth queue scanners share the lock lifecycle and the <code>paused</code>/<code>paused_auth</code>/<code>human_gated</code> terminal/escalation stages.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</td>
+<td>in/out</td>
+<td>Reads <code>pid</code>/<code>pidStartedAt</code>/<code>lastSeenAt</code>/<code>branchName</code>/<code>workflowStage</code>/<code>resumeAttempts</code>/<code>repoIdentity</code>; writes <code>abandoned</code>/<code>human_gated</code>/<code>resumeAttempts</code>/<code>lastSeenAt</code>/<code>branchName</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</td>
+<td>out</td>
+<td>Worktree path resolution, hard-reset to <code>origin/&lt;branch&gt;</code>, branch/worktree listing, <code>ls-remote</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</td>
+<td>out</td>
+<td>LLM branch-slug generation (<code>resolveWorkflowBranchName</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>in</td>
+<td>Entrypoints wrap fn in lock+heartbeat lifecycle; <code>workflowInit</code> calls branch resolution + repo cross-check.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</td>
+<td>in</td>
+<td>Cron/webhook call <code>evaluateCandidate</code>; cron runs hung-detector sweep on a cycle gate.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience queues</td>
+<td>in/out</td>
+<td>Terminal <code>paused</code>/<code>paused_auth</code> deferred to pause/auth queue scanners; <code>phase_timeout</code> cap escalates to <code>human_gated</code> HITL.</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li><strong>resumePolicy / phase_timeout cap (#639)</strong> not in PRD — added after; PRD's takeover tree had no resume-attempt cap or <code>escalate_human_gated</code> decision.</li>
+<li><strong>Worktree reuse-in-place gate (probe + reuse-gate, #638)</strong> not in PRD — PRD specified unconditional hard-reset on every takeover; implementation reuses healthy worktrees and only resets on a fault.</li>
+<li><strong><code>worktreeReset</code> module is vestigial</strong> — PRD specified <code>resetWorktreeToRemote(worktreePath, branch)</code> here; reset I/O migrated to <code>GitContext.resetWorktree</code> (#662), file has no exports.</li>
+<li><strong><code>paused_auth</code> terminal stage</strong> and <strong>auth-gate SIGTERM path</strong> not in PRD (PRD only had <code>paused</code>).</li>
+<li><strong>Deterministic branch-identity fallback + adwId reverse-lookup</strong> (<code>branchIdentity</code>/<code>branchIdentityFallback</code>) not in PRD; added as a comment-loss recovery tier ahead of LLM generation.</li>
+<li><strong><code>repoIdentityCrossCheck</code></strong> not in PRD.</li>
+<li><strong>GitContext-scoped worktree path resolution</strong> (<code>EvaluateCandidateInput.gitContext</code>) added beyond PRD's <code>evaluateCandidate({issueNumber, repoInfo})</code>.</li>
+<li>Otherwise faithful: lock lifetime, PID+start-time liveness, heartbeat 30s / 3-min staleness, stage taxonomy, remote-reconcile re-verification all match.</li>
+</ul><nav class="footer-pager"><a href="08-bdd-scenario-subsystem.html"><div class="dir">← Previous · 08</div><div class="ttl">BDD / scenario subsystem</div></a><a class="next" href="10-triggers.html"><div class="dir">Next · 10 →</div><div class="ttl">Triggers</div></a></nav>
+</main>
+</div>
+</body>
+</html>

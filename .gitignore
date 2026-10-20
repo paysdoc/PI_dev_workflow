@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+*.log
+.pi/logs/
+.DS_Store
+cucumber-report.html
+
+commands/
+.env

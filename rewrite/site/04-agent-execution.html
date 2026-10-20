@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>04. Agent execution — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">04 / 16 — Agent execution</span><div class="spacer"></div><div class="pager"><a href="03-gitcontext.html">← GitContext</a><a href="05-phase-runner-and-cost-tracking.html">Phase runner & cost-tracking composition →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="current" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 04 of 16</div><h1>Agent execution</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_4.png" alt="Detail diagram for Agent execution"><figcaption>Figure 4 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The single seam through which every ADW phase talks to the model. It spawns the <code>claude</code> (Claude Code) CLI as a child process, drives it with a slash command + arguments, parses the CLI's streamed JSONL output (assistant text, tool calls, system events, the terminal result), enforces lifecycle policy (watchdog timeout, token-limit kill, auth/rate-limit/compaction kills, ENOENT/auth retries), and returns a typed <code>AgentResult</code>. A thin <code>runCommandAgent</code> wrapper layers model/effort routing and schema-validated output retries on top.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Build the CLI prompt string <code>"&lt;command&gt; '&lt;arg&gt;' '&lt;arg&gt;'…"</code> (single-quoting each arg; optional <code>contextPreamble</code> prepended).</li>
+<li>Spawn the resolved <code>claude</code> binary with a fixed flag set; run it <code>detached</code> (new process group) with a filtered (allowlisted) env.</li>
+<li>Stream-parse stdout JSONL incrementally with cross-chunk line buffering; surface progress via callback; mirror raw lines and a human log into the agent state dir.</li>
+<li>Detect, mid-stream, fatal conditions (auth error, rate limit / overload / server error, context compaction, output-token threshold) and <code>SIGTERM</code> the child early.</li>
+<li>Enforce a per-phase watchdog; <code>killProcessGroup</code> the whole tree on timeout.</li>
+<li>Map terminal exit code + parser state into <code>AgentResult</code>; throw <code>AgentTimeoutError</code> / <code>RateLimitError</code> / <code>AuthRequiredError</code> for orchestrator handling.</li>
+<li>Retry policy: up to 3 total attempts on <code>ENOENT</code> (re-resolve path); one retry on expired OAuth (after <code>claude auth status --json</code> check); never retry on rate limit.</li>
+<li>Cost extraction delegated to <code>AnthropicTokenUsageExtractor</code> (<a class="xref" href="13-cost-telemetry-and-d1.html" title="<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry & D1">subsystem 13</a>), invoked here per-chunk and at close.</li>
+<li><code>runCommandAgent</code>: select model/effort via <code>modelRouting</code>, run, then optionally validate extracted output against a JSON Schema with a corrective-Haiku retry loop.</li>
+<li>A standalone schema probe/conformance harness (<code>adws/jsonl/</code>) captures and CI-checks the CLI's JSONL envelope shape.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/claudeAgent.ts</code></td>
+<td><code>runClaudeAgentWithCommand</code> — prompt build, spawn, flags, watchdog, ENOENT/auth retries, error classification.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/agentProcessHandler.ts</code></td>
+<td><code>handleAgentProcess</code> — attaches stdout/stderr/close/error handlers, mid-stream kill triggers, builds <code>AgentResult</code> + cost fields.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/commandAgent.ts</code></td>
+<td><code>runCommandAgent&lt;T&gt;</code> — generic wrapper; model/effort routing; schema-validated output retry loop (max 10, early-exit at 3 identical errors).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/claudeStreamParser.ts</code></td>
+<td><code>parseJsonlOutput</code> + content/message types; JSONL line parsing, text/tool extraction, structured event detection.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/jsonlParser.ts</code></td>
+<td>Backward-compat re-export barrel pointing at <code>claudeStreamParser</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/index.ts</code></td>
+<td>Barrel exporting all agent runners (thin per-command wrappers built on <code>runCommandAgent</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/environment.ts</code></td>
+<td><code>CLAUDE_CODE_PATH</code>, <code>resolveClaudeCodePath</code>, <code>clearClaudeCodePathCache</code>, <code>getSafeSubprocessEnv</code>, <code>SAFE_ENV_VARS</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/modelRouting.ts</code></td>
+<td>Per-command model &amp; effort maps (+ <code>/fast</code>/<code>/cheap</code> variants); <code>getModelForCommand</code>, <code>getEffortForCommand</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/agentTimeouts.ts</code></td>
+<td><code>getAgentTimeoutForPhase</code> — per-phase watchdog timeout.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/types/agentTypes.ts</code></td>
+<td><code>AgentResult</code>, <code>ClaudeCodeResultMessage</code>, <code>RateLimitError</code>/<code>AuthRequiredError</code>/<code>AgentTimeoutError</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/jsonl/schema.json</code></td>
+<td>Probed JSONL envelope schema (assistant/result/system message-type field structure).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/jsonl/schemaProbe.ts</code></td>
+<td><code>probeClaudeJsonlSchema</code> — spawns <code>claude --print --output-format stream-json "say hello"</code>, extracts schema.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/jsonl/conformanceCheck.ts</code></td>
+<td>CI checker — validates fixtures vs schema + through <code>parseJsonlOutput</code> and the extractor.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/jsonl/{types,index}.ts</code>, <code>fixtureUpdater.ts</code>, <code>fixtures/</code></td>
+<td>Schema types, fixture corpus, auto-updater.</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ol>
+<li><strong>Prompt build</strong> (<code>runClaudeAgentWithCommand</code>): args single-quoted (<code>'…'</code> with <code>'</code> escaped as <code>'\''</code>); prompt = <code>[preamble\n\n]command quotedArgs</code>. Prompt saved to <code>&lt;statePath&gt;/prompts/&lt;command&gt;.txt</code>.</li>
+<li><strong>Spawn</strong>: <code>spawn(resolveClaudeCodePath(), cliArgs, { cwd, env: getSafeSubprocessEnv(), detached:true, stdio:['ignore','pipe','pipe'] })</code>. If <code>cwd</code> is a worktree (<code>.worktrees/</code>), injects <code>ADW_WORKTREE_PATH</code> and <code>ADW_MAIN_REPO_PATH</code> into the env.</li>
+<li><strong>Watchdog</strong>: <code>setTimeout(getAgentTimeoutForPhase(phaseName))</code>; on fire sets <code>watchdogFired</code>, calls <code>killProcessGroup(pid, 5000)</code>. After <code>handleAgentProcess</code> resolves, if <code>watchdogFired</code> → throw <code>AgentTimeoutError</code>.</li>
+<li><strong>Stream handling</strong> (<code>handleAgentProcess</code>): each stdout chunk is appended to the JSONL output file, fed to <code>extractor.onChunk</code>, and to <code>parseJsonlOutput</code>. After each chunk, checks parser state flags and the running token estimate; on any trip it <code>claude.kill('SIGTERM')</code> and remembers the reason. stderr is logged + written prefixed <code>[STDERR]</code>.</li>
+<li><strong>Mid-stream kill triggers</strong>: <code>authErrorDetected</code> → kill (→ <code>authExpired</code>); <code>rateLimitRejected || serverErrorDetected || overloadedErrorDetected</code> → kill (→ <code>rateLimited</code>); <code>compactionDetected</code> → kill (→ <code>compactionDetected:true</code>, success); primary-model output tokens ≥ <code>MAX_THINKING_TOKENS * TOKEN_LIMIT_THRESHOLD</code> → kill (→ <code>tokenLimitExceeded:true</code>, success with partial output).</li>
+<li><strong>Close handling</strong>: builds cost fields from extractor (<code>getReportedCostUsd</code> if finalized, else estimated; <code>costSource</code> = <code>extractor_finalized</code>|<code>extractor_estimated</code>). Resolution precedence: rateLimited → tokenLimit → compaction → (<code>code===0 &amp;&amp; lastResult</code>) success → (<code>code===0</code>, no result; warns if 0 turns "slash command may not be available") → failure (with <code>authExpired</code>).</li>
+<li><strong>Post-result retries</strong> (<code>runClaudeAgentWithCommand</code>): if <code>output</code> contains <code>ENOENT</code> → up to 2 more attempts (3 total), each <code>clearClaudeCodePathCache()</code>, exponential backoff <code>500*2^n</code>, re-spawn with re-resolved path (own watchdog). If <code>rateLimited</code> → throw <code>RateLimitError</code> (no retry). If <code>authExpired</code> → run <code>claude auth status --json</code> (full <code>process.env</code>, 15s); if <code>loggedIn</code> re-spawn once, else throw <code>AuthRequiredError</code>.</li>
+<li><strong><code>runCommandAgent</code></strong>: builds outputFile under <code>logsDir</code>, <code>model = getModelForCommand(command, issueBody)</code>, <code>effort = getEffortForCommand(...)</code>, calls <code>runClaudeAgentWithCommand</code>. If <code>extractOutput</code> provided, runs <code>runRetryLoop</code>: re-extract; on failure spawn a fresh <strong>haiku</strong> session with a corrective prompt embedding the schema + validation error; up to <code>MAX_RETRIES=10</code>, early-exit after <code>MAX_CONSECUTIVE_IDENTICAL_ERRORS=3</code>, else throw <code>OutputValidationError</code>.</li>
+<li><strong>Schema probe / conformance</strong>: <code>schemaProbe</code> spawns <code>claude --print --output-format stream-json "say hello"</code>, takes first occurrence of each <code>type</code> as the schema. <code>conformanceCheck</code> validates each fixture's required fields + that it feeds cleanly through <code>parseJsonlOutput</code> (asserts assistant→turnCount++, result→lastResult set) and the extractor (assistant→usage present, result→finalized). Unknown <code>type</code> = informational, not a failure.</li>
+</ol>
+<h2>Data Structures</h2>
+<ul>
+<li><strong><code>cliArgs</code></strong>: <code>['--print','--verbose','--dangerously-skip-permissions','--output-format','stream-json','--model',&lt;model&gt;, (effort? '--effort',&lt;effort&gt;), &lt;prompt&gt;]</code>.</li>
+<li><strong><code>JsonlParserState</code></strong>: <code>lastResult</code>, <code>fullOutput</code>, <code>turnCount</code>, <code>toolCount</code>, <code>primaryModel?</code>, <code>lineBuffer</code>, and boolean flags <code>rateLimitRejected</code>, <code>authErrorDetected</code>, <code>serverErrorDetected</code>, <code>overloadedErrorDetected</code>, <code>compactionDetected</code>.</li>
+<li><strong>Content blocks</strong>: <code>TextContentBlock{type:'text',text}</code>, <code>ToolUseContentBlock{type:'tool_use',id,name,input}</code>, <code>ToolResultContentBlock{type:'tool_result',tool_use_id,content}</code>.</li>
+<li><strong><code>JsonlMessage</code></strong>: union of <code>assistant</code> (<code>message.content[]</code>), <code>result</code>, or <code>{type,…}</code> fallback.</li>
+<li><strong><code>AgentResult</code></strong>: <code>success,output,sessionId?,totalCostUsd?,modelUsage?,statePath?,tokenLimitExceeded?,compactionDetected?,tokenUsage?,partialOutput?,estimatedUsage?,actualUsage?,costSource?,authExpired?,rateLimited?</code>.</li>
+<li><strong><code>ClaudeCodeResultMessage</code></strong>: <code>type,subtype,isError,durationMs,durationApiMs,numTurns,result,sessionId</code>.</li>
+<li><strong><code>CommandAgentConfig&lt;T&gt;</code></strong> / <strong><code>CommandAgentOptions</code></strong> / <strong><code>CommandAgentResult&lt;T&gt;</code> (= AgentResult &amp; {parsed:T})</strong>.</li>
+<li><strong><code>EnvelopeSchema</code></strong> / <strong><code>SchemaField</code></strong> / <strong><code>ConformanceResult</code></strong> (jsonl harness).</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li><code>runClaudeAgentWithCommand(command, args, agentName, outputFile, model='sonnet', effort?, onProgress?, statePath?, cwd?, contextPreamble?, phaseName?) → Promise&lt;AgentResult&gt;</code></li>
+<li><code>runCommandAgent&lt;T&gt;(config, options) → Promise&lt;CommandAgentResult&lt;T&gt;&gt;</code>; <code>OutputValidationError</code>.</li>
+<li><code>parseJsonlOutput</code>, <code>extractTextFromAssistantMessage</code>, <code>extractToolUseFromMessage</code> + all JSONL/progress types.</li>
+<li><code>handleAgentProcess(claude, agentName, outputFile, onProgress, statePath, model) → Promise&lt;AgentResult&gt;</code>.</li>
+<li>Errors: <code>RateLimitError</code>, <code>AuthRequiredError</code>, <code>AgentTimeoutError</code>.</li>
+<li>jsonl harness: <code>probeClaudeJsonlSchema</code>, <code>checkConformance</code>, <code>formatConformanceReport</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li>
+<ol>
+<li>Config &amp; Environment — <code>CLAUDE_CODE_PATH</code>/<code>resolveClaudeCodePath</code>/<code>getSafeSubprocessEnv</code>, <code>MAX_THINKING_TOKENS</code>, <code>TOKEN_LIMIT_THRESHOLD</code>, model/effort routing, <code>getAgentTimeoutForPhase</code>.</li>
+</ol>
+</li>
+<li>
+<ol start="2">
+<li>State &amp; ADW ID — <code>AgentStateManager</code> (prompt save, <code>appendLog</code>, <code>writeRawOutput</code> to <code>output.jsonl</code>).</li>
+</ol>
+</li>
+<li>
+<ol start="13">
+<li>Cost telemetry &amp; D1 — <code>AnthropicTokenUsageExtractor</code>, <code>computeCost</code>, <code>getAnthropicPricing</code>, <code>computeTotalTokens</code>.</li>
+</ol>
+</li>
+<li><code>processKill.killProcessGroup</code>; <code>vcs/worktreeOperations.getMainRepoPath</code>.</li>
+<li>Downstream (depended on by):</li>
+<li>
+<ol start="7">
+<li>Phases &amp; orchestrators — all per-command agent wrappers (planAgent, buildAgent, testAgent, gitAgent, prAgent, reviewAgent, documentAgent, etc.) call these runners.</li>
+</ol>
+</li>
+<li>
+<ol start="5">
+<li>Phase runner &amp; cost-tracking composition — consumes <code>AgentResult</code> and the thrown error types.</li>
+</ol>
+</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>called-by</td>
+<td>runs slash-command agents; returns <code>AgentResult</code> / throws timeout, rate-limit, auth errors</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">5. </a>Phase runner &amp; cost-tracking</td>
+<td>called-by</td>
+<td><code>RateLimitError</code>/<code>AgentTimeoutError</code>/<code>AuthRequiredError</code> drive pause/timeout/auth-gate; <code>costSource</code>/<code>modelUsage</code> feed cost composition</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</td>
+<td>depends-on</td>
+<td>CLI path resolution, safe env allowlist, model/effort maps, per-phase timeouts, token thresholds</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</td>
+<td>depends-on</td>
+<td>writes prompts, raw <code>output.jsonl</code>, human <code>appendLog</code> entries to agent state dir</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry &amp; D1</td>
+<td>depends-on</td>
+<td>per-chunk + finalized token/cost extraction via <code>AnthropicTokenUsageExtractor</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience</td>
+<td>indirect</td>
+<td>mid-stream rate-limit/auth kills surface as errors that orchestrators turn into pause/auth-gate</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<p>None observed (no subsystem-specific PRD; behavior documented directly from source).</p><nav class="footer-pager"><a href="03-gitcontext.html"><div class="dir">← Previous · 03</div><div class="ttl">GitContext</div></a><a class="next" href="05-phase-runner-and-cost-tracking.html"><div class="dir">Next · 05 →</div><div class="ttl">Phase runner & cost-tracking composition</div></a></nav>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,33 @@
+digraph G {
+  rankdir=LR; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fontcolor="white", width=1.4, height=0.7, margin="0.08,0.05"];
+  edge [color="#888888", arrowsize=0.7];
+  graph [ranksep=0.35, nodesep=0.2];
+  n0 [label="GitHub issue", fillcolor="#214d8a"];
+  n1 [label="10. Trigger\n(cron/webhook)", fillcolor="#214d8a"];
+  n2 [label="9. Coordination\nspawn lock + takeover", fillcolor="#7a2f4a"];
+  n3 [label="12. Upgrade gate\n(hash check)", fillcolor="#7a2f4a"];
+  n4 [label="7. Classify +\nPlan", fillcolor="#7a5230"];
+  n5 [label="8. Scenarios\n+ step defs", fillcolor="#7a5230"];
+  n6 [label="7. Build\n(/implement)", fillcolor="#7a5230"];
+  n7 [label="8. Scenario test\n+ fix loop", fillcolor="#7a5230"];
+  n8 [label="7. Review\n+ patch", fillcolor="#7a5230"];
+  n9 [label="15. Proof\nscreenshots", fillcolor="#7a5230"];
+  n10 [label="14. Document", fillcolor="#7a5230"];
+  n11 [label="11. Auto-merge\ngate", fillcolor="#7a2f4a"];
+  n12 [label="Merged PR", fillcolor="#2f6b6b"];
+  n0 -> n1;
+  n1 -> n2;
+  n2 -> n3;
+  n3 -> n4;
+  n4 -> n5;
+  n5 -> n6;
+  n6 -> n7;
+  n7 -> n8;
+  n8 -> n9;
+  n9 -> n10;
+  n10 -> n11;
+  n11 -> n12;
+  rail [label="Cross-cutting: 1 Config · 2 State · 3 GitContext · 4 Agent exec · 5 Phase runner · 6 Providers · 13 Cost", shape=note, fillcolor="#33485e", fontsize=10, width=3];
+  {rank=sink; rail;}
+}

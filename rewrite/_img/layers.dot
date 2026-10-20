@@ -1,0 +1,67 @@
+digraph G {
+  rankdir=BT; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, fontcolor="white", width=1.7, height=0.6];
+  edge [style=invis];
+  graph [fontname="Helvetica", fontsize=14, ranksep=0.4, nodesep=0.25];
+  subgraph cluster_L0 {
+    label="Layer 0 — Substrate"; labeljust="l"; style="rounded,filled"; fillcolor="#33485e22"; color="#33485e"; fontcolor="#33485e"; fontsize=15;
+  1 [label="1. Config &\nEnvironment", fillcolor="#33485e", fontcolor="white", color="#222222", penwidth=1];
+
+  2 [label="2. State &\nADW ID", fillcolor="#33485e", fontcolor="white", color="#222222", penwidth=1];
+
+    {rank=same; 1; 2;}
+  }
+  subgraph cluster_L1 {
+    label="Layer 1 — I/O authorities"; labeljust="l"; style="rounded,filled"; fillcolor="#2f6b6b22"; color="#2f6b6b"; fontcolor="#2f6b6b"; fontsize=15;
+  3 [label="3. GitContext", fillcolor="#2f6b6b", fontcolor="white", color="#222222", penwidth=1];
+
+  4 [label="4. Agent\nexecution", fillcolor="#2f6b6b", fontcolor="white", color="#222222", penwidth=1];
+
+    {rank=same; 3; 4;}
+  }
+  1 -> 3;
+  subgraph cluster_L2 {
+    label="Layer 2 — Composition & providers"; labeljust="l"; style="rounded,filled"; fillcolor="#5a4a8622"; color="#5a4a86"; fontcolor="#5a4a86"; fontsize=15;
+  6 [label="6. Provider\nabstraction", fillcolor="#5a4a86", fontcolor="white", color="#222222", penwidth=1];
+
+  5 [label="5. Phase runner\n& cost-track", fillcolor="#5a4a86", fontcolor="white", color="#222222", penwidth=1];
+
+  13 [label="13. Cost\ntelemetry & D1", fillcolor="#5a4a86", fontcolor="white", color="#222222", penwidth=1];
+
+    {rank=same; 6; 5; 13;}
+  }
+  3 -> 6;
+  subgraph cluster_L3 {
+    label="Layer 3 — Pipeline & content"; labeljust="l"; style="rounded,filled"; fillcolor="#7a523022"; color="#7a5230"; fontcolor="#7a5230"; fontsize=15;
+  7 [label="7. Phases &\norchestrators", fillcolor="#7a5230", fontcolor="white", color="#222222", penwidth=1];
+
+  8 [label="8. BDD / scenario\nsubsystem", fillcolor="#7a5230", fontcolor="white", color="#222222", penwidth=1];
+
+  14 [label="14. Docs &\nliving-docs", fillcolor="#7a5230", fontcolor="white", color="#222222", penwidth=1];
+
+  15 [label="15. Screenshots", fillcolor="#7a5230", fontcolor="white", color="#222222", penwidth=1];
+
+  16 [label="16. Supply-chain", fillcolor="#7a5230", fontcolor="white", color="#222222", penwidth=1];
+
+    {rank=same; 7; 8; 14; 15; 16;}
+  }
+  6 -> 7;
+  subgraph cluster_L4 {
+    label="Layer 4 — Coordination & governance"; labeljust="l"; style="rounded,filled"; fillcolor="#7a2f4a22"; color="#7a2f4a"; fontcolor="#7a2f4a"; fontsize=15;
+  9 [label="9. Coordination\nkernel", fillcolor="#7a2f4a", fontcolor="white", color="#222222", penwidth=1];
+
+  11 [label="11. Auto-merge / HITL\n+ resilience", fillcolor="#7a2f4a", fontcolor="white", color="#222222", penwidth=1];
+
+  12 [label="12. Framework\nself-upgrade", fillcolor="#7a2f4a", fontcolor="white", color="#222222", penwidth=1];
+
+    {rank=same; 9; 11; 12;}
+  }
+  7 -> 9;
+  subgraph cluster_L5 {
+    label="Layer 5 — Entry points"; labeljust="l"; style="rounded,filled"; fillcolor="#214d8a22"; color="#214d8a"; fontcolor="#214d8a"; fontsize=15;
+  10 [label="10. Triggers", fillcolor="#214d8a", fontcolor="white", color="#222222", penwidth=1];
+
+    {rank=same; 10;}
+  }
+  9 -> 10;
+}

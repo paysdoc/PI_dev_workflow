@@ -1,0 +1,41 @@
+digraph G {
+  rankdir=LR; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, width=1.5, height=0.6, margin="0.08,0.05"];
+  edge [fontname="Helvetica", fontsize=8, color="#999999", fontcolor="#555555", arrowsize=0.6];
+  graph [ranksep=1.6, nodesep=0.18];
+  4 [label="4. Agent\nexecution", fillcolor="#2f6b6b", fontcolor="white", color="#111111", penwidth=3];
+
+  1 [label="1. Config &\nEnvironment", fillcolor="#33485ebb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  2 [label="2. State &\nADW ID", fillcolor="#33485ebb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  5 [label="5. Phase runner\n& cost-track", fillcolor="#5a4a86bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  7 [label="7. Phases &\norchestrators", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  8 [label="8. BDD / scenario\nsubsystem", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  9 [label="9. Coordination\nkernel", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  11 [label="11. Auto-merge / HITL\n+ resilience", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  12 [label="12. Framework\nself-upgrade", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  13 [label="13. Cost\ntelemetry & D1", fillcolor="#5a4a86bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  14 [label="14. Docs &\nliving-docs", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  16 [label="16. Supply-chain", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  4 -> 1 [label="CLI path, env allowlist, model/effort", color="#7a2f4a", penwidth=1.4];
+  4 -> 2 [label="writes raw_output.jsonl", color="#7a2f4a", penwidth=1.4];
+  4 -> 13 [label="token usage extraction", color="#7a2f4a", penwidth=1.4];
+  5 -> 4 [label="model/effort/timeout", color="#2f6b6b", penwidth=1.4, style=dashed];
+  7 -> 4 [label="slash-command agents", color="#2f6b6b", penwidth=1.4, style=dashed];
+  8 -> 4 [label="6 scenario slash-cmds", color="#2f6b6b", penwidth=1.4, style=dashed];
+  14 -> 4 [label="/document agent", color="#2f6b6b", penwidth=1.4, style=dashed];
+  16 -> 4 [label="depaudit via execWithRetry", color="#2f6b6b", penwidth=1.4, style=dashed];
+  9 -> 4 [label="branch-slug gen", color="#2f6b6b", penwidth=1.4, style=dashed];
+  11 -> 4 [label="rate-limit/auth signals", color="#2f6b6b", penwidth=1.4, style=dashed];
+  12 -> 4 [label="/adw_init regen", color="#2f6b6b", penwidth=1.4, style=dashed];
+}

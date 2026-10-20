@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>07. Phases & orchestrators — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">07 / 16 — Phases & orchestrators</span><div class="spacer"></div><div class="pager"><a href="06-provider-abstraction.html">← Provider abstraction</a><a href="08-bdd-scenario-subsystem.html">BDD / scenario subsystem →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="current" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 07 of 16</div><h1>Phases & orchestrators</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_7.png" alt="Detail diagram for Phases & orchestrators"><figcaption>Figure 7 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The linear SDLC pipeline of ADW: the root <code>adws/adw*.tsx</code> entry-point scripts that classify a GitHub issue, route it to a workflow, and compose a sequence of phases (plan → build → test → review → document → PR). Each phase wraps one or more Claude agents (each invoking a slash-command skill) plus git/state side-effects. Issue classification and orchestrator-script routing decide which pipeline runs.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li><strong>Entry points / CLI</strong>: each <code>adw*.tsx</code> parses argv (<code>parseOrchestratorArguments</code>, <code>parseTargetRepoArgs</code>), resolves repo identity, calls <code>initializeWorkflow</code>, then composes phases inside <code>runWithOrchestratorLifecycle</code>.</li>
+<li><strong>Issue classification &amp; routing</strong>: <code>classifyGitHubIssue</code> / <code>classifyIssueForTrigger</code> (LLM via <code>/classify_issue</code>, with deterministic <code>adw:*</code> label override); <code>getWorkflowScript</code> maps classified type → orchestrator script via <code>issueTypeToOrchestratorMap</code>.</li>
+<li><strong>Workflow lifecycle</strong>: <code>initializeWorkflow</code> (fetch issue, classify, resolve adwId, set up worktree, recovery detection, build <code>WorkflowConfig</code>); <code>completeWorkflow</code> / <code>handleWorkflowError</code> / <code>handleRateLimitPause</code> / <code>handlePhaseTimeout</code> / <code>handleWorkflowDiscarded</code> terminal handlers.</li>
+<li><strong>Phase implementations</strong>: plan, build (with token-limit/compaction recovery + progress gate), PR, review (passive judge) + review-patch cycle, document, diff-evaluation, install, and the PR-review sub-pipeline (<code>prReviewPhase</code>).</li>
+<li><strong>Agents</strong>: thin wrappers (<code>runPlanAgent</code>, <code>runBuildAgent</code>, <code>runReviewAgent</code>, <code>runPatchAgent</code>, <code>runRefactorAgent</code>, <code>runPullRequestAgent</code>, <code>runDocumentAgent</code>, <code>runDiffEvaluatorAgent</code>, <code>runInstallAgent</code>, <code>runCommitAgent</code>) each mapping to a slash command.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/adwSdlc.tsx</code></td>
+<td>Full SDLC orchestrator (plan‖scenario → align → build → stepDef → unit → scenario-fix loop → review/patch loop → document → PR → awaiting_merge).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/adwChore.tsx</code></td>
+<td>Chore pipeline with Haiku diff-gate escalation to review→document.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/adwPatch.tsx</code></td>
+<td>Direct patch: <code>/patch</code> → build → PR (no review/test).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/adwPlanBuild*.tsx</code>, <code>adwPlan/Build/Test/Document.tsx</code>, <code>adwPrReview.tsx</code></td>
+<td>Composition variants — same phase functions, different sequences.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/issueClassifier.ts</code></td>
+<td>LLM classification (<code>/classify_issue</code>), <code>adw:*</code> label override chokepoint.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/workflowMapping.ts</code></td>
+<td><code>getWorkflowScript(issueType) → script</code> (fallback <code>adwPlanBuildTest.tsx</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/types/issueRouting.ts</code></td>
+<td><code>issueTypeToOrchestratorMap</code>, commit/branch prefix maps.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/orchestratorCli.ts</code></td>
+<td>argv parsing (<code>parseOrchestratorArguments</code>, <code>extractCwdOption</code>, <code>--issue-type</code>, <code>--target-repo</code>, <code>buildRepoIdentifier</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/constants.ts</code></td>
+<td><code>OrchestratorId.*</code> name constants.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/workflowInit.ts</code></td>
+<td><code>initializeWorkflow</code>, <code>WorkflowConfig</code> interface.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/workflowCompletion.ts</code></td>
+<td>Terminal handlers (complete/error/pause/timeout/discard).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/planPhase.ts</code></td>
+<td>Plan phase + continuation-prompt builders.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/buildPhase.ts</code></td>
+<td>Build phase + token/compaction recovery + progress gate.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/reviewPhase.ts</code></td>
+<td>Passive review judge + <code>executeReviewPatchCycle</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/prPhase.ts</code>, <code>documentPhase.ts</code>, <code>diffEvaluationPhase.ts</code>, <code>installPhase.ts</code>, <code>prReviewPhase.ts</code>, <code>prReviewCompletion.ts</code></td>
+<td>Remaining phase implementations.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/index.ts</code>, <code>adws/workflowPhases.ts</code></td>
+<td>Barrel re-exports consumed by orchestrators.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/planAgent.ts</code>, <code>buildAgent.ts</code>, <code>reviewAgent.ts</code>, <code>patchAgent.ts</code>, <code>refactorAgent.ts</code>, <code>prAgent.ts</code>, <code>documentAgent.ts</code>, <code>diffEvaluatorAgent.ts</code>, <code>installAgent.ts</code>, <code>gitAgent.ts</code></td>
+<td>Per-phase agent wrappers → slash commands.</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ul>
+<li><strong>Routing</strong>: a trigger classifies an issue (LLM <code>/classify_issue</code> unless an unambiguous <code>adw:&lt;type&gt;</code> label overrides). <code>getWorkflowScript</code> maps <code>{/bug,/feature}→adwSdlc.tsx</code>, <code>/chore→adwChore.tsx</code>, <code>/pr_review→adwPlanBuild.tsx</code>; unmapped → <code>adwPlanBuildTest.tsx</code>. The chosen script is spawned with the issue number (+ optional <code>--issue-type</code>, <code>--target-repo</code>).</li>
+<li><strong>Init</strong> (<code>initializeWorkflow</code>): pre-flight Claude CLI check → activate GitHub App auth → fetch issue → <code>detectRecoveryState</code> → classify (or use provided type) → resolve adwId (provided ▸ recovered-from-comment ▸ deterministic-branch fallback ▸ generated) → set up/reuse worktree (target-repo workspace if external) → upgrade gate (target repos only; may park+exit) → init state stores → fire-and-forget board setup → load <code>.adw/</code> project config + <code>.github/adw.yml</code> → allocate dev-server port → return <code>WorkflowConfig</code>.</li>
+<li><strong>SDLC pipeline</strong> (<code>adwSdlc</code>): install → (plan ‖ scenario, parallel) → alignment → build → stepDef → unit-test → <code>runScenarioTestFixLoop</code> → orchestrator-level review→patch→retest loop (bounded <code>MAX_REVIEW_RETRY_ATTEMPTS</code>) → document → PR → proof-publish → write <code>awaiting_merge</code> (does NOT call <code>completeWorkflow</code>; merge handled later by cron/<code>adwMerge</code>).</li>
+<li><strong>Build recovery</strong>: on token-limit or compaction, build saves progress, re-wraps the plan with <code>buildContinuationPrompt</code> (git-state-authoritative once checkpoint commits exist), and retries up to <code>MAX_CONTEXT_RESETS</code> per batch; at batch boundaries commits-if-dirty and evaluates the progress gate (<code>evaluateProgressGate</code>, <code>MAX_PROGRESS_CHECKPOINTS</code>) which can abort.</li>
+<li><strong>Chore pipeline</strong>: install → plan → build → stepDef → unit → scenario-fix → <strong>diff-evaluation</strong> (<code>/diff_evaluator</code>, Haiku). <code>safe</code> ⇒ straight to PR; <code>regression_possible</code> ⇒ post escalation comment, run review→patch loop + document, then PR. Pre-approves PR unless <code>hitl</code> label present.</li>
+<li><strong>Review</strong> is a passive judge: <code>runReviewAgent</code> reads the scenario-proof file and emits <code>ReviewIssue[]</code> with <code>issueSeverity</code> and <code>remediationStrategy</code> (<code>patch</code>|<code>refactor</code>). <code>executeReviewPatchCycle</code> applies patch blockers (<code>runPatchAgent</code>/<code>/patch</code>) and refactor blockers (<code>runRefactorAgent</code>/<code>/refactor</code>), commits+pushes; orchestrator re-runs scenario tests then re-reviews.</li>
+<li><strong>Phase wrapping</strong>: every phase runs through <code>runPhase</code>/<code>runPhasesParallel</code> (<a class="xref" href="05-phase-runner-and-cost-tracking.html" title="<a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">05. </a>Phase runner & cost-tracking composition">subsystem 5</a>) which times, cost-tracks, and converts <code>RateLimitError</code>→pause. Each phase posts a stage comment via <code>postIssueStageComment</code> and honors <code>shouldExecuteStage</code> (recovery skip) using <code>RecoveryState</code>.</li>
+</ul>
+<h2>Data Structures</h2>
+<ul>
+<li><code>WorkflowConfig</code> (workflowInit.ts): the shared phase context — <code>issueNumber, adwId, issue, issueType, worktreePath, defaultBranch, logsDir, orchestratorStatePath, orchestratorName, recoveryState, ctx (WorkflowContext), branchName, applicationUrl, targetRepo?, repoContext?, projectConfig, adwYmlConfig, installContext?, completedPhases?, topLevelStatePath, gitContext?</code>.</li>
+<li><code>PRReviewWorkflowConfig</code>: <code>{ base: WorkflowConfig, prNumber, prDetails, unaddressedComments, ctx }</code>.</li>
+<li><code>OrchestratorArgs</code>: <code>{ issueNumber, adwId, cwd, providedIssueType }</code>.</li>
+<li><code>IssueClassificationResult</code>: <code>{ issueType, success, adwId?, issueTitle? }</code>.</li>
+<li><code>ReviewIssue</code>: <code>{ reviewIssueNumber, issueDescription, issueResolution, issueSeverity, remediationStrategy? }</code>.</li>
+<li><code>DiffEvaluationPhaseResult</code>: adds <code>verdict: 'safe' | 'regression_possible'</code>.</li>
+<li><code>OrchestratorId</code> constant map; <code>issueTypeToOrchestratorMap</code>, <code>commitPrefixMap</code>, <code>branchPrefixMap</code>, <code>branchPrefixAliases</code>.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>CLI: <code>bunx tsx adws/&lt;orchestrator&gt;.tsx &lt;issueNumber&gt; [adwId] [--issue-type &lt;t&gt;] [--cwd &lt;p&gt;] [--target-repo owner/repo] [--clone-url &lt;u&gt;]</code>.</li>
+<li>Exported routing: <code>getWorkflowScript</code>, <code>classifyGitHubIssue</code>, <code>classifyIssueForTrigger</code>.</li>
+<li>Exported CLI helpers: <code>parseOrchestratorArguments</code>, <code>parseTargetRepoArgs</code>, <code>buildRepoIdentifier</code>, <code>extractCwdOption</code>, <code>printUsageAndExit</code>.</li>
+<li>Exported phase functions (via <code>adws/workflowPhases.ts</code>): <code>initializeWorkflow</code>, <code>executeInstallPhase</code>, <code>executePlanPhase</code>, <code>executeAlignmentPhase</code>, <code>executeBuildPhase</code>, <code>executeStepDefPhase</code>, <code>executeUnitTestPhase</code>, <code>executeScenarioTestPhase</code>, <code>runScenarioTestFixLoop</code>, <code>executeReviewPhase</code>, <code>executeReviewPatchCycle</code>, <code>executeDocumentPhase</code>, <code>executeDiffEvaluationPhase</code>, <code>executePRPhase</code>, <code>executeProofPublishPhase</code>, <code>completeWorkflow</code>, <code>handleWorkflowError</code>, <code>handleRateLimitPause</code>, plus the <code>executePRReview*</code> family.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><strong><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</strong> — <code>loadProjectConfig</code>, <code>readAdwYmlConfig</code>, <code>ANTHROPIC_API_KEY</code>/<code>GITHUB_PAT</code>/<code>CLAUDE_CODE_PATH</code>.</li>
+<li><strong><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</strong> — <code>AgentStateManager</code>, <code>generateAdwId</code>, top-level state, <code>RecoveryState</code>/<code>shouldExecuteStage</code>.</li>
+<li><strong><a class="xref" href="03-gitcontext.html" title="03. GitContext">3. </a>GitContext</strong> — worktree setup, branch resolution, push, diff, <code>buildLaunchGitContext</code>.</li>
+<li><strong><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</strong> — <code>runClaudeAgentWithCommand</code> underlying every agent wrapper.</li>
+<li><strong><a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">6. </a>Provider abstraction</strong> — <code>RepoContext</code> (<code>issueTracker</code>, <code>codeHost</code>, <code>boardManager</code>), <code>RepoIdentifier</code>.</li>
+<li>Downstream (depended on by):</li>
+<li><strong><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</strong> — call <code>classifyIssueForTrigger</code>/<code>getWorkflowScript</code> and spawn <code>adw*.tsx</code>.</li>
+<li><strong><a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">9. </a>Coordination kernel</strong> — <code>runWithOrchestratorLifecycle</code> wraps every orchestrator body.</li>
+<li><strong><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL</strong> — orchestrators write <code>awaiting_merge</code>; <code>adwMerge</code>/cron consume it.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">5. </a>Phase runner &amp; cost</td>
+<td>calls →</td>
+<td>every phase runs via <code>runPhase</code>/<code>runPhasesParallel</code>; returns <code>{costUsd, modelUsage, phaseCostRecords}</code>; <code>CostTracker</code> accumulates.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</td>
+<td>calls →</td>
+<td>agent wrappers invoke <code>runClaudeAgentWithCommand</code> with model/effort from <code>getModelForCommand</code>/<code>getEffortForCommand</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">8. </a>BDD / scenario</td>
+<td>calls →</td>
+<td>composes <code>executeScenarioPhase</code>, <code>executeStepDefPhase</code>, <code>executeScenarioTestPhase</code>, <code>runScenarioTestFixLoop</code>, <code>executeProofPublishPhase</code>; consumes <code>scenarioProofPath</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">9. </a>Coordination kernel</td>
+<td>wrapped-by ←</td>
+<td><code>runWithOrchestratorLifecycle</code> (spawn lock); <code>RateLimitError</code> → <code>handleRateLimitPause</code> → pause queue.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">6. </a>Provider abstraction</td>
+<td>calls →</td>
+<td><code>repoContext.issueTracker.moveToStatus/commentOnIssue</code>, <code>codeHost.createPullRequest</code>, <code>boardManager.*</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL</td>
+<td>writes →</td>
+<td><code>workflowStage: 'awaiting_merge'</code>, PR approval, <code>hitl</code> label check (chore).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="12-framework-self-upgrade.html" title="12. Framework self-upgrade">12. </a>Framework self-upgrade</td>
+<td>calls →</td>
+<td><code>initializeWorkflow</code> runs <code>runUpgradeGate</code> for target repos (may park+exit).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry &amp; D1</td>
+<td>produces →</td>
+<td><code>createPhaseCostRecords</code>/<code>PhaseCostRecord</code>, <code>persistTokenCounts</code>, <code>formatCostCommentSection</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="14-docs-and-living-docs.html" title="14. Docs & living-docs">14. </a>Docs &amp; living-docs</td>
+<td>calls →</td>
+<td><code>executeDocumentPhase</code> (<code>/document</code>) + non-fatal <code>executeDocsPostWriteSelfCheck</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2>CLAUDE-CODE TOUCHPOINTS</h2>
+<ul>
+<li>Classification: <code>/classify_issue</code>.</li>
+<li>Plan: issue type used directly as command — <code>/feature</code>, <code>/bug</code>, <code>/chore</code>, <code>/pr_review</code>.</li>
+<li>Build: <code>/implement</code> or <code>/implement-tdd</code> (auto-routed when <code>@adw-{issue}</code> scenarios exist).</li>
+<li>Review: <code>/review</code>; patch <code>/patch</code>; refactor <code>/refactor</code>.</li>
+<li>PR: <code>/pull_request</code>; commit <code>/commit</code>; branch slug <code>/generate_branch_name</code>.</li>
+<li>Document: <code>/document</code>. Install/prime: <code>/install</code>. Diff gate: <code>/diff_evaluator</code> on <strong>Haiku</strong> (chore escalation decision).</li>
+</ul>
+<h2>PRD Divergences</h2>
+<ul>
+<li><code>orchestrator-coordination-resilience.md</code> describes the resilience surface (pause/resume, phase timeout, progress gate) — all present in code (<code>handleRateLimitPause</code>, <code>handlePhaseTimeout</code>, <code>evaluateProgressGate</code>). No divergence observed.</li>
+<li><code>test-review-refactor.md</code> describes review as a passive judge with patch/refactor remediation strategies and an orchestrator-level retry loop — matches <code>reviewPhase.ts</code> + <code>executeReviewPatchCycle</code> exactly.</li>
+<li><code>tdd-bdd-integration.md</code> (plan‖scenario parallel, alignment, build auto-routing to TDD) — matches <code>adwSdlc</code> composition.</li>
+<li>Minor: routing PRDs predate the <code>adw:*</code> label-override chokepoint and the deterministic-branch adwId fallback; both are code-only refinements not reflected in PRDs.</li>
+</ul><nav class="footer-pager"><a href="06-provider-abstraction.html"><div class="dir">← Previous · 06</div><div class="ttl">Provider abstraction</div></a><a class="next" href="08-bdd-scenario-subsystem.html"><div class="dir">Next · 08 →</div><div class="ttl">BDD / scenario subsystem</div></a></nav>
+</main>
+</div>
+</body>
+</html>

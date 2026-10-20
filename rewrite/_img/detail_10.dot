@@ -1,0 +1,26 @@
+digraph G {
+  rankdir=LR; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, width=1.5, height=0.6, margin="0.08,0.05"];
+  edge [fontname="Helvetica", fontsize=8, color="#999999", fontcolor="#555555", arrowsize=0.6];
+  graph [ranksep=1.6, nodesep=0.18];
+  10 [label="10. Triggers", fillcolor="#214d8a", fontcolor="white", color="#111111", penwidth=3];
+
+  1 [label="1. Config &\nEnvironment", fillcolor="#33485ebb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  2 [label="2. State &\nADW ID", fillcolor="#33485ebb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  3 [label="3. GitContext", fillcolor="#2f6b6bbb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  7 [label="7. Phases &\norchestrators", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  9 [label="9. Coordination\nkernel", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  11 [label="11. Auto-merge / HITL\n+ resilience", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  10 -> 9 [label="spawnGate, takeover", color="#7a2f4a", penwidth=1.4];
+  10 -> 7 [label="spawns orchestrator", color="#7a2f4a", penwidth=1.4];
+  10 -> 1 [label="cwd assert, port alloc", color="#7a2f4a", penwidth=1.4];
+  10 -> 3 [label="per-launch context", color="#7a2f4a", penwidth=1.4];
+  10 -> 11 [label="scan pause/auth queues", color="#7a2f4a", penwidth=1.4];
+  10 -> 2 [label="discarded/abandoned", color="#7a2f4a", penwidth=1.4];
+}

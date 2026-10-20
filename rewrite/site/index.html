@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADW Architecture — Overview</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">Architecture overview</span><div class="spacer"></div><div class="pager"><a href="01-config-and-environment.html">Next: Config & Environment →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="current" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+
+<section class="hero">
+  <div class="eyebrow">AI Dev Workflow</div>
+  <h1>ADW Architecture — As-is Reference</h1>
+  <p class="lede">A sixteen-part walkthrough of the ADW (AI Dev Workflow) system,
+  layered from the configuration substrate at the bottom through orchestration,
+  coordination, and operational concerns at the top. Click through in order for
+  the narrative, or jump to any subsystem via the sidebar.</p>
+  <div class="start-cta">
+    <a href="01-config-and-environment.html">Start the walkthrough →</a>
+  </div>
+</section>
+
+<h2>Big picture</h2>
+<p>Three cross-cutting views of the full system. Each subsystem page below drills
+into a slice of these diagrams.</p>
+
+<figure class="detail-figure">
+  <img src="assets/img/master.png" alt="Master architecture diagram">
+  <figcaption>Master diagram — every subsystem and its primary edges, in one map.</figcaption>
+</figure>
+
+<div class="diagram-row">
+  <figure class="detail-figure">
+    <img src="assets/img/layers.png" alt="Layered architecture">
+    <figcaption>Layers — static dependency stack from env/config up to triggers &amp; HITL.</figcaption>
+  </figure>
+  <figure class="detail-figure">
+    <img src="assets/img/flow.png" alt="Runtime flow">
+    <figcaption>Flow — runtime path of a single workflow execution across subsystems.</figcaption>
+  </figure>
+</div>
+
+<h2>The sixteen subsystems</h2>
+<p>Read them in order for the full narrative; each page ends with a “next” link
+that follows the same ordering as the sidebar.</p>
+<div class="card-grid">
+<a class="card" href="01-config-and-environment.html"><span class="num">SUBSYSTEM 01</span><h3>Config & Environment</h3><p>The substrate every other subsystem reads.</p></a><a class="card" href="02-state-and-adw-id.html"><span class="num">SUBSYSTEM 02</span><h3>State & ADW ID</h3><p>The persistence substrate for ADW workflows.</p></a><a class="card" href="03-gitcontext.html"><span class="num">SUBSYSTEM 03</span><h3>GitContext</h3><p>`GitContext` is the single deep-module authority for all git and `gh` I/O in ADW.</p></a><a class="card" href="04-agent-execution.html"><span class="num">SUBSYSTEM 04</span><h3>Agent execution</h3><p>The single seam through which every ADW phase talks to the model.</p></a><a class="card" href="05-phase-runner-and-cost-tracking.html"><span class="num">SUBSYSTEM 05</span><h3>Phase runner & cost-tracking composition</h3><p>The composition glue that wraps each workflow phase: it routes a slash command to a model tier and reasoning effort, applies a per-phase watchdog timeout, runs a generic retry-with-resolution loop where applicable, an…</p></a><a class="card" href="06-provider-abstraction.html"><span class="num">SUBSYSTEM 06</span><h3>Provider abstraction</h3><p>Provides a pluggable, platform-agnostic seam so ADW workflow phases never call GitHub/GitLab/Jira directly.</p></a><a class="card" href="07-phases-and-orchestrators.html"><span class="num">SUBSYSTEM 07</span><h3>Phases & orchestrators</h3><p>The linear SDLC pipeline of ADW: the root `adws/adw*.tsx` entry-point scripts that classify a GitHub issue, route it to a workflow, and compose a sequence of phases (plan → build → test → review → document → PR).</p></a><a class="card" href="08-bdd-scenario-subsystem.html"><span class="num">SUBSYSTEM 08</span><h3>BDD / scenario subsystem</h3><p>Drives BDD-driven validation across the SDLC pipeline: generating per-issue Gherkin scenarios from a GitHub issue, generating step definitions, reconciling the implementation plan against scenarios, running tag-filter…</p></a><a class="card" href="09-coordination-kernel.html"><span class="num">SUBSYSTEM 09</span><h3>Coordination kernel</h3><p>The single-host recovery / anti-split-brain layer.</p></a><a class="card" href="10-triggers.html"><span class="num">SUBSYSTEM 10</span><h3>Triggers</h3><p>The two automation entry points that turn external GitHub activity into spawned ADW orchestrator processes.</p></a><a class="card" href="11-automerge-hitl-resilience.html"><span class="num">SUBSYSTEM 11</span><h3>Auto-merge / HITL + resilience queues</h3><p>The governance + pause/resume layer.</p></a><a class="card" href="12-framework-self-upgrade.html"><span class="num">SUBSYSTEM 12</span><h3>Framework self-upgrade</h3><p>Keeps every registered target repo's `.adw/` configuration in sync with the ADW framework.</p></a><a class="card" href="13-cost-telemetry-and-d1.html"><span class="num">SUBSYSTEM 13</span><h3>Cost telemetry & D1</h3><p>The cost engine (`adws/cost/`) computes, formats, and persists the monetary/token cost of each ADW phase.</p></a><a class="card" href="14-docs-and-living-docs.html"><span class="num">SUBSYSTEM 14</span><h3>Docs & living-docs</h3><p>Generates and maintains current-state module documentation under `app_docs/`.</p></a><a class="card" href="15-screenshots.html"><span class="num">SUBSYSTEM 15</span><h3>Screenshots</h3><p>The review-screenshot pipeline harvests BDD scenario screenshot artifacts produced during scenario test runs, uploads them to per-repo Cloudflare R2 buckets via the S3-compatible API, and embeds the resulting public U…</p></a><a class="card" href="16-supply-chain.html"><span class="num">SUBSYSTEM 16</span><h3>Supply-chain</h3><p>Integrates the external `depaudit` dependency-audit gate into ADW.</p></a>
+</div>
+
+<div class="start-cta" style="margin-top:3rem">
+  <a href="01-config-and-environment.html">Begin at 01 — Config & Environment →</a>
+</div>
+
+</main>
+</div>
+</body>
+</html>

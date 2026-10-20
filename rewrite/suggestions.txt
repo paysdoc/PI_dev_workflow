@@ -1,0 +1,335 @@
+================================================================================
+ADW — SUGGESTIONS FOR IMPROVEMENT  (to-be / forward-looking)
+================================================================================
+Scope: this is the ONLY to-be document in rewrite/. The 16 NN-*.md specs are
+strictly as-is. Everything here is a recommendation, synthesized from reading
+all 16 subsystems against ground-truth source. The headline theme — model-
+agnostic decoupling — is treated first and at most depth, because it is the
+stated reason for the rewrite. General architecture, correctness, and
+hygiene improvements follow.
+
+Each item is tagged:
+  [MA]  model-agnostic decoupling
+  [ARCH] architecture / structure
+  [BUG] latent correctness gap (verify before relying on it)
+  [DEBT] cleanup / drift risk
+  [GAP] feature wired-but-inert or built-but-unconnected
+
+Confidence is called out where a claim is a hypothesis vs. read-from-source.
+
+
+================================================================================
+PART 1 — MODEL-AGNOSTIC DECOUPLING  (the load-bearing theme)
+================================================================================
+
+The coupling to Claude Code is NOT evenly spread. It concentrates in two
+subsystems (4 Agent execution, 13 Cost) with thin leakage into a handful of
+others (5 routing, 7 slash-command names, 11 rate-limit/auth string matching,
+12 /adw_init). That is good news: a provider seam is achievable without
+touching the substrate (1,2,3) or the coordination/governance layers (9,10,11
+mechanics). Below, the touchpoints in dependency order, then the proposed seam.
+
+--------------------------------------------------------------------------------
+1.1 [MA] Where the model coupling actually lives (the seam inventory)
+--------------------------------------------------------------------------------
+A. Process invocation (subsystem 4, adws/agents/claudeAgent.ts)
+   - Binary resolved from CLAUDE_CODE_PATH / `which claude`.
+   - Fixed CLI flag order: --print --verbose --dangerously-skip-permissions
+     --output-format stream-json --model <m> [--effort <e>] "<prompt>".
+   - Prompt is a slash command string passed as the final positional arg,
+     args single-quoted. This is Claude-Code-specific surface.
+   - detached process group so the watchdog can SIGKILL heredoc grandchildren.
+
+B. Stream parsing (subsystem 4, adws/core/claudeStreamParser.ts)
+   - JSONL line protocol with Claude-specific message types: `assistant`
+     (message.content[] text/tool_use/tool_result), `result`, `rate_limit_event`,
+     `system` subtypes `api_retry` / `compact_boundary`.
+   - Error classification keys off magic strings and `attempt>=2` heuristics.
+
+C. Model/effort routing (subsystems 1 + 5)
+   - SLASH_COMMAND_MODEL_MAP / _EFFORT_MAP hardcode opus/sonnet/haiku and
+     per-model-version effort capabilities (Opus xhigh, Haiku no-effort) as
+     code + comments. Tier vocabulary is Anthropic-specific.
+
+D. Cost & pricing (subsystem 13)
+   - pricing.ts hardcodes Anthropic model IDs and per-token prices; unknown
+     model silently falls back to sonnet.
+   - Extractor parses Claude JSONL usage fields with a snake_case (per-turn
+     usage) / camelCase (result.modelUsage) split. provider field hardcoded
+     'anthropic' (also the D1 column default).
+
+E. Liveness / pause signals (subsystems 10, 11)
+   - Auth gate shells `claude auth status --json`.
+   - Rate-limit detection matches literal strings ("You've hit your limit",
+     "You're out of extra usage", "502 Bad Gateway", ...).
+   - Resume probe: `claude --print "ping" --model haiku --max-turns 1 ...`.
+
+F. Prompt assets (subsystems 7, 8, 12, 14)
+   - The agents ARE .claude/commands/*.md slash commands; /classify_issue,
+     /feature, /implement, /review, /document, /adw_init, the 6 scenario
+     commands, /diff_evaluator-on-Haiku. These are prompt contracts, not just
+     model calls — a portability concern in their own right.
+
+--------------------------------------------------------------------------------
+1.2 [MA] Proposed seam: one ModelProvider adapter interface
+--------------------------------------------------------------------------------
+Introduce a single interface every subsystem talks to instead of `claude`:
+
+   interface ModelProvider {
+     run(req: AgentRequest): AsyncIterable<AgentEvent>   // normalized events
+     authStatus(): Promise<AuthState>
+     priceFor(model, usage): Money                       // owns pricing
+     capabilities(model): { effortLevels, maxTokens, supportsTools }
+   }
+
+   AgentEvent = TextDelta | ToolUse | ToolResult | UsageUpdate
+              | RateLimited | AuthExpired | Compacted | Result
+
+   - claudeAgent + claudeStreamParser collapse into a ClaudeCodeProvider that
+     maps the CLI/JSONL surface onto AgentEvent. This is the ONLY file that
+     knows CLI flags, JSONL field names, and the snake/camel split.
+   - A second provider (e.g. an API-based AnthropicProvider, or an
+     OpenAI/local provider) implements the same interface. Subsystems 5/7/8/
+     9/10/11/12/13/14 become provider-agnostic.
+   - Pricing moves behind priceFor(); the hardcoded table becomes provider-
+     owned config (see 1.3).
+   - Rate-limit/auth detection moves from string-matching to typed
+     RateLimited / AuthExpired events emitted by the provider — kills the
+     fragile literal-string matching in 11.
+
+   Effort estimate (hypothesis, not measured): the bulk is mechanical — 4
+   files in subsystem 4, the two routing maps, and the cost extractor. The
+   risk is the watchdog/kill semantics (detached group, mid-stream SIGKILL
+   thresholds) which are tied to a child-process model; an API provider has a
+   different cancellation model (abort signal) and will need a parallel path.
+
+--------------------------------------------------------------------------------
+1.3 [MA] Make pricing and tiers data, not code
+--------------------------------------------------------------------------------
+   - Externalize the pricing table (subsystem 13) to config/remote so cost
+     accuracy is not coupled to a code release. Today a new model = stale cost
+     or silent sonnet fallback.
+   - Replace the opus/sonnet/haiku tier strings with an abstract tier
+     (FAST/BALANCED/DEEP) resolved per-provider. The command->tier mapping is
+     model-agnostic; only the tier->concrete-model resolution is provider-
+     specific.
+
+--------------------------------------------------------------------------------
+1.4 [MA] Decouple the prompt assets from the model
+--------------------------------------------------------------------------------
+   - The slash-command .md files are a Claude Code delivery mechanism. For a
+     model-agnostic ADW, separate the PROMPT CONTENT from the DELIVERY: store
+     prompts as plain templates and let each provider decide how to deliver
+     them (CLI slash command vs API system/user messages vs tool spec).
+   - /diff_evaluator, /classify_issue etc. that expect a specific model
+     (Haiku) should request a TIER, not a model name.
+
+--------------------------------------------------------------------------------
+1.5 [MA] Structured agent output instead of regex-over-prose
+--------------------------------------------------------------------------------
+   - issueClassifier parses free-form LLM text with a /feature default-on-
+     failure (subsystem 7). commandAgent already has a schema-validated output
+     path — route classification (and scenario verdicts) through it. A
+     model-agnostic provider should expose a "constrained/JSON output" mode so
+     these don't depend on Claude's particular formatting.
+
+
+================================================================================
+PART 2 — ARCHITECTURE & STRUCTURE
+================================================================================
+
+2.1 [ARCH] Collapse the duplicated git-context boundary builders
+   Subsystem 3 ships TWO parallel construction paths — launchGitContext.ts and
+   github/gitContextFactory.ts — with duplicated token/identity resolution
+   chains that can drift independently. The PRD describes ONE adapter. Unify.
+
+2.2 [DEBT] Burn down the git/gh guard allowlist
+   checkGitGhGuard allowlists ~25 "residual — migrate to GitContext" sites, so
+   context-free git/gh is still representable. The deep-module win (subsystem 3)
+   is only fully realized when the allowlist reaches zero. Also retire the
+   transitional activateGitHubAppAuth() process-global once vcs ops + the agent
+   subprocess are migrated.
+
+2.3 [ARCH] One reconciliation path in the BDD subsystem
+   Subsystem 8 has two parallel plan<->scenario reconcilers: the older multi-
+   round planValidationPhase loop AND the single-pass alignmentPhase. The TDD
+   PRD intended the single-pass to replace the loop. Pick one. Likewise,
+   step-def generation is split between a standalone stepDefPhase and the TDD
+   build loop — the PRD wanted stepDefPhase dropped; it still runs. This is
+   token waste (double generation) and two code paths to maintain.
+
+2.4 [ARCH] Extract the copy-pasted review->patch->retest loop
+   Subsystem 7: this loop is duplicated verbatim across adwSdlc, adwChore,
+   adwPlanBuildReview, adwPlanBuildTestReview, adwPrReview. Extract one
+   runReviewPatchLoop helper. Same for awaiting_merge finalization (state
+   write + cost persist + banner) duplicated in every awaiting_merge
+   orchestrator -> finishAwaitingMerge(config, tracker, metadata).
+
+2.5 [ARCH] Unify the two pause/resume mechanisms
+   Subsystem 11 has two near-identical pause paths with DIFFERENT
+   representations: rate-limit uses a queue file (pauseQueueScanner); auth uses
+   a state-scan + takeover-branch-5 (scanAuthQueue). One durable queue/state
+   representation would remove the split and its divergent resume logic.
+
+2.6 [ARCH] Single source of truth for stage routing
+   Stage->action is split across stageClassifier (typed class) and inline
+   string checks in takeoverHandler/cronIssueFilter (phase_timeout,
+   *_completed, *_running). A classifier->action TABLE consumed by every
+   call site removes the dual dispatch.
+
+2.7 [ARCH] Consolidate verdict logic
+   Pass/fail derivation lives in three places: scenarioProof.deriveTagOutcome,
+   testVerdict, resolveVerdict. Consolidating would shrink the warning /
+   exit-code / JUnit reconciliation surface.
+
+2.8 [ARCH] Make the provider interfaces fully async
+   Subsystem 6: partly-sync interface signatures (commentOnIssue,
+   getIssueState) force the Jira tracker into fire-and-forget placeholders
+   that return fake data. Making IssueTracker/CodeHost uniformly async removes
+   the mismatch and unblocks real Jira/GitLab parity. Bitbucket is declared
+   but unimplemented — either build it or drop the enum value.
+
+
+================================================================================
+PART 3 — LATENT CORRECTNESS GAPS  (verify before relying on these)
+================================================================================
+These were read from source but NOT reproduced with a failing test. Treat as
+hypotheses to confirm, not confirmed defects.
+
+3.1 [BUG] Cost divergence detection is inert
+   Subsystem 13: createPhaseCostRecords copies the CLI-reported cost into BOTH
+   computedCostUsd and reportedCostUsd. computeCost()/pricing.ts exist but are
+   never wired in. So checkDivergence (5% threshold) always compares a number
+   to itself — divergence can never fire. Wire computeCost(usage, pricing)
+   into record creation to make it real. (High confidence: read directly.)
+
+3.2 [GAP] estimate-vs-actual cost report never renders
+   Same subsystem: estimatedTokens/actualTokens are always undefined, so
+   formatEstimateVsActual is dead despite the extractor capturing estimates.
+
+3.3 [GAP] depaudit setup is built but never invoked
+   Subsystem 16: executeDepauditSetup is defined, exported, unit-tested, and
+   gh-guard-allowlisted — but NO orchestrator or init file calls it. The
+   adw_init wiring described by the PRD is absent in this snapshot. Either the
+   supply-chain gate does not actually run on onboarding, or it is wired
+   somewhere not found. VERIFY by grepping the live adw_init call graph.
+
+3.4 [GAP] living-docs migration incomplete -> prime cost goal unmet
+   Subsystem 14: the app-docs PRD's whole point is bounding /prime cost by
+   converging conditional_docs.md to ~one-entry-per-module (~40, gate cap 60).
+   Live index has 221 entries (only 30 with Owns: blocks). checkLivingDocsIndex
+   would currently FAIL. The convergence machinery shipped; the one-off
+   migration did not complete. The headline benefit is not yet delivered.
+
+3.5 [BUG] Screenshot Worker hardcodes OWNER='paysdoc'
+   Subsystem 15: the public-serving Worker hardcodes owner while uploadService
+   is owner-parameterized. Any non-paysdoc target repo's screenshot URLs will
+   not resolve. Breaks the moment ADW serves a second owner.
+
+3.6 [BUG] adwId uses Math.random()
+   Subsystem 2: generateAdwId uses non-crypto Math.random() for the uniqueness
+   token. Under rapid concurrent launches (cron + webhook same tick) collision
+   is possible, and adwId is the workspace/state key. Use crypto randomness.
+
+3.7 [BUG] Upgrade gate TOCTOU + shallow regen check
+   Subsystem 12: hash is computed at gate time and AGAIN at regen from disk —
+   a window where the framework changes between election and regen.
+   verifyAdwRegen checks file presence/non-emptiness but not content validity,
+   so a malformed-but-non-empty .adw/ file stamps .adw-version and suppresses
+   future re-upgrade. Pass the gate's hash through to regen; add a section/
+   schema check to verifyAdwRegen.
+
+3.8 [BUG] Non-atomic per-agent state writes
+   Subsystem 2: writeTopLevelState uses tmp+rename (atomic) but per-agent
+   writeState is a plain writeFileSync. A crash mid-write tears per-agent
+   state. Unify on atomic writes.
+
+3.9 [DEBT] D1 cost post is fire-and-forget
+   Subsystem 5: CostTracker.commit calls postCostRecordsToD1 without awaiting
+   (only .catch). Posts can outlive the phase; ordering is not guaranteed; a
+   process exit can drop the final post. Acceptable for telemetry, but make it
+   a deliberate choice (e.g. a flush-on-exit) rather than incidental.
+
+
+================================================================================
+PART 4 — HYGIENE / SMALLER DRIFT RISKS
+================================================================================
+4.1 [DEBT] loadProjectConfig re-reads and re-parses all .adw/ files on every
+    call with no memoization — hot in long-running triggers. (Subsystem 1)
+4.2 [DEBT] Env-var parsing (parseInt/parseFloat with || fallbacks) duplicated
+    ~15x in config.ts; a typed envInt(name, default, min) centralizes
+    clamping. (Subsystem 1)
+4.3 [DEBT] runPhasesParallel skips per-phase status writes (no phaseName), so
+    parallel phases are invisible to resume/skip logic — asymmetric with
+    runPhase. (Subsystem 5)
+4.4 [DEBT] remoteReconcile's issueNumber param is unused (reserved for
+    commits-ahead) — dead parameter threaded through the call chain.
+    (Subsystem 9)
+4.5 [DEBT] Lock release on crash relies entirely on next-caller staleness
+    reclaim; an abnormal process.exit skips finally. A process-level
+    beforeExit/signal handler could release proactively. (Subsystem 9)
+4.6 [DEBT] trigger_shutdown finds webhook processes via `ps aux | grep` while
+    cron uses a PID file — give the webhook a PID file too. (Subsystem 10)
+4.7 [DEBT] Two parallel repo-URL parsers (githubApi.getRepoInfo GitHub-only
+    regex vs repoContext.parseOwnerRepoFromUrl host-agnostic) — consolidate.
+    (Subsystem 6)
+4.8 [GAP] Docs regrowth flags are computed and logged but never actioned
+    (bloat files an issue; regrowth does nothing). Route them or drop the dead
+    path. (Subsystem 14)
+4.9 [DEBT] extractDocPathFromOutput trusts the LLM's last output line as a
+    path with no existence/format validation — a malformed line silently
+    becomes the recorded docPath. (Subsystem 14)
+4.10 [DEBT] Two parallel proof-comment formatters (prProofPublisher live R2
+    path vs proofCommentFormatter issue path) with overlapping table logic;
+    the latter's screenshotUrls are dead placeholders. (Subsystem 15)
+
+
+================================================================================
+PART 5 — DIVERGENT DESIGN DIRECTIONS  (bigger bets for the new ADW)
+================================================================================
+These are not fixes to today's ADW; they are alternative shapes worth weighing
+for a model-agnostic rebuild. Opinionated, not prescriptive.
+
+5.1 Provider-first core. Make ModelProvider (1.2) the FIRST thing built, with
+    a fake/replay provider for tests, before any pipeline code. Today the
+    model coupling leaked because the CLI was the substrate; invert that.
+
+5.2 Reconsider the single-host constraint. The coordination kernel (subsystem
+    9) is the most over-engineered part precisely because it emulates
+    distributed coordination on one host with files + PIDs. If the rebuild can
+    assume a real queue/DB (the D1 worker already exists), a job-queue model
+    (claim by row-lock, lease + heartbeat in the DB) would replace spawnGate /
+    processLiveness / remoteReconcile / takeoverHandler with one well-understood
+    primitive — and lift the single-host limitation as a side effect. This is
+    the single largest simplification available.
+
+5.3 Treat state as a DB, not a tree of JSON files. agents/{adwId}/state.json +
+    sidecar files + remoteReconcile-from-GitHub is a homegrown event store.
+    The same D1/SQLite the cost module uses could hold workflow state, making
+    resume/recovery a query instead of a filesystem reconstruction.
+
+5.4 Prompts as versioned, provider-neutral templates (1.4) with a thin
+    per-provider renderer. Decouples "what we ask the model" from "how Claude
+    Code happens to deliver it," and makes prompt changes diffable without
+    touching delivery code.
+
+5.5 One verdict engine. Fold subsystem 8's three verdict sources (2.7) plus
+    resolveVerdict/testVerdict into a single pure module the whole pipeline
+    consumes — testability win and removes the JUnit/exit-code/proof
+    reconciliation guesswork.
+
+5.6 Decide whether BDD-as-contract survives. The bdd-rewrite PRDs admit the
+    suite was "glorified linting" (file-existence asserts). The behavioral
+    rewrite is real progress, but a from-scratch ADW should decide up front
+    whether scenarios remain the plan/impl contract or whether TDD (subsystem
+    8 + the implement-tdd skill) becomes primary and BDD becomes regression-
+    only. Today both coexist (the two-reconciler problem in 2.3).
+
+
+================================================================================
+METHOD NOTE
+================================================================================
+Every Part 1-4 item was read from source by a per-subsystem pass. Part 3 items
+are correctness HYPOTHESES (read, not reproduced with a failing test) — confirm
+each with a targeted check before acting. Part 5 is design opinion. The as-is
+detail backing every claim lives in the matching rewrite/NN-*.md spec.

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>15. Screenshots — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">15 / 16 — Screenshots</span><div class="spacer"></div><div class="pager"><a href="14-docs-and-living-docs.html">← Docs & living-docs</a><a href="16-supply-chain.html">Supply-chain →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="current" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 15 of 16</div><h1>Screenshots</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_15.png" alt="Detail diagram for Screenshots"><figcaption>Figure 15 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The review-screenshot pipeline harvests BDD scenario screenshot artifacts produced during scenario test runs, uploads them to per-repo Cloudflare R2 buckets via the S3-compatible API, and embeds the resulting public URLs into a PR "BDD Proof" comment. A standalone Cloudflare Worker (<code>screenshot-router</code>) serves those images publicly under <code>screenshots.paysdoc.nl/{repo}/{key}</code> and garbage-collects empty buckets on a daily cron. This is workflow-driven PR test-proof infrastructure, not an interactive tool.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Construct an S3 client pointed at Cloudflare R2 (<code>r2Client.ts</code>).</li>
+<li>Lazily create per-repo buckets named <code>adw-{owner}-{repo}</code> with a 30-day expiration lifecycle rule (<code>bucketManager.ts</code>).</li>
+<li>Upload image bytes and return a stable public URL (<code>uploadService.ts</code>).</li>
+<li>Recursively harvest image artifacts from the scenario proof artifacts dir (<code>proofArtifactHarvester.ts</code>).</li>
+<li>Compose and post a PR proof comment with JUnit summary table + grouped inline screenshot embeds (<code>prProofPublisher.ts</code>).</li>
+<li>Host/serve public objects and GC empty buckets (<code>workers/screenshot-router</code>).</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/r2/r2Client.ts</code></td>
+<td>Pure factory: builds <code>S3Client</code> for R2 endpoint <code>https://{accountId}.r2.cloudflarestorage.com</code>, region <code>auto</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/r2/bucketManager.ts</code></td>
+<td><code>toBucketName</code>, <code>ensureBucket</code> — lazy bucket creation (<code>LocationConstraint: 'EU'</code>), 30-day lifecycle rule, in-process <code>knownBuckets</code> cache, race-tolerant.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/r2/uploadService.ts</code></td>
+<td><code>uploadToR2</code> — builds R2Config from env, ensures bucket, <code>PutObjectCommand</code>, returns <code>{url, bucket, key}</code>; URL = <code>https://screenshots.paysdoc.nl/{repo}/{key}</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/r2/types.ts</code></td>
+<td><code>R2Config</code>, <code>UploadOptions</code>, <code>UploadResult</code>, <code>BucketInfo</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/r2/index.ts</code></td>
+<td>Barrel export.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/proof/proofArtifactHarvester.ts</code></td>
+<td><code>harvestProofArtifacts(dir)</code> — recursive image walk (<code>.png/.jpg/.jpeg/.gif/.webp</code>), POSIX-normalised relPaths, sorted.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/proof/prProofPublisher.ts</code></td>
+<td><code>formatPrProofComment</code> (pure) + <code>publishPrProof</code> (impure: harvest → upload → format → <code>commentOnPR</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/proof/types.ts</code></td>
+<td><code>ProofArtifact</code>, <code>UploadedArtifact</code>, <code>TagProofResultLike</code>, <code>PublishDeps</code> (DI for uploader/commenter).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/proofPublishPhase.ts</code></td>
+<td><code>executeProofPublishPhase</code> — reads <code>ctx.scenarioProof</code> + <code>ctx.prUrl</code>, calls <code>publishPrProof</code>; non-fatal, zero cost.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/scenarioProof.ts</code></td>
+<td>Runs tagged scenarios, sets <code>ADW_PROOF_DIR={proofDir}/artifacts</code> so step defs write screenshots there; returns <code>artifactsDir</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/proofCommentFormatter.ts</code></td>
+<td>Separate issue-comment review formatter; <code>screenshotUrls</code>/<code>screenshots</code> fields are explicit "placeholder for future wiring" — NOT wired to R2.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>workers/screenshot-router/src/index.ts</code></td>
+<td>CF Worker: <code>fetch</code> serves <code>/{repo}/{key}</code> from <code>adw-paysdoc-{repo}</code>; <code>scheduled</code> (cron <code>0 3 * * *</code>) deletes empty <code>adw-*</code> buckets.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>workers/screenshot-router/wrangler.toml</code></td>
+<td>Route <code>screenshots.paysdoc.nl/*</code>, zone <code>paysdoc.nl</code>, smart placement (EU), cron, R2 via S3 secrets (no static bindings).</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ol>
+<li><strong>Capture</strong> — <code>scenarioTestPhase</code> runs <code>runScenarioProof</code>, which wipes/creates <code>{proofDir}/artifacts</code> and runs each config tag via <code>runScenariosByTag</code>, passing <code>ADW_PROOF_DIR</code> (and <code>ADW_JUNIT_REPORT_PATH</code>) into the scenario subprocess env. Target-repo step definitions write screenshot images into that dir. Result (<code>ScenarioProofResult</code> incl. <code>artifactsDir</code>, <code>tagResults</code>) is set on <code>config.ctx.scenarioProof</code>.</li>
+<li><strong>Publish</strong> — <code>executeProofPublishPhase</code> extracts PR number from <code>ctx.prUrl</code>, resolves <code>{owner, repo}</code> (from <code>repoContext.repoId</code> or <code>getRepoInfo()</code>), and calls <code>publishPrProof</code>.</li>
+<li><strong>Harvest+Upload</strong> — <code>publishPrProof</code> skips if <code>prNumber &lt;= 0</code> or <code>artifactsDir</code>/<code>scenarioProof</code> missing. Harvests artifacts; if R2 env vars present and artifacts exist, uploads each as key <code>proof/{adwId}/{relPath}</code> with ext-derived content type. Per-upload failures logged and swallowed.</li>
+<li><strong>Comment</strong> — <code>formatPrProofComment</code> builds <code>:camera: BDD Proof</code> with pass/fail status line, passed/failed tally, summary table, and per-scenario <code>&lt;details&gt;</code> groups of <code>[![file](url)](url)</code> embeds (grouped by leading relPath segment). If R2 unconfigured and no uploads: <code>_R2 is not configured_</code> note. <code>ADW_SIGNATURE</code> appended; posted via <code>commentOnPR</code>.</li>
+<li><strong>Serve</strong> — A reader hitting <code>screenshots.paysdoc.nl/{repo}/{key}</code> triggers the Worker, which <code>GetObject</code>s from <code>adw-paysdoc-{repo}</code>, streams the body with <code>Cache-Control: public, max-age=86400</code>, returns 404 for missing key/bucket.</li>
+<li><strong>GC</strong> — Daily cron lists <code>adw-*</code> buckets, deletes any with zero objects (per-bucket errors tolerated).</li>
+</ol>
+<h2>Data Structures</h2>
+<ul>
+<li><code>R2Config { accountId, accessKeyId, secretAccessKey, publicBaseUrl }</code>.</li>
+<li><code>UploadOptions { owner, repo, key, body, contentType? }</code> → <code>UploadResult { url, bucket, key }</code>.</li>
+<li><code>ProofArtifact { absPath, relPath }</code>; <code>UploadedArtifact { scenario, url, fileName }</code>.</li>
+<li><code>PublishDeps { artifactsDir?, scenarioProof?, prNumber, repoInfo, adwId, uploader?, commenter? }</code>.</li>
+<li>Bucket name: <code>adw-{normalise(owner)}-{normalise(repo)}</code>, lowercased, hyphen-only, ≤63 chars.</li>
+<li>Object key (proof): <code>proof/{adwId}/{relPath}</code>. Public URL: <code>{publicBaseUrl}/{repo}/{key}</code>.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li><code>createR2Client(config)</code>, <code>toBucketName(owner, repo)</code>, <code>ensureBucket(client, owner, repo)</code>, <code>uploadToR2(options)</code> (re-exported from <code>adws/r2/index.ts</code>).</li>
+<li><code>harvestProofArtifacts(dir)</code>, <code>formatPrProofComment(input)</code>, <code>publishPrProof(deps)</code> (re-exported from <code>adws/proof/index.ts</code>).</li>
+<li><code>executeProofPublishPhase(config)</code> (re-exported via <code>adws/workflowPhases.ts</code>).</li>
+<li>Worker default export <code>{ fetch, scheduled }</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li>Config &amp; Environment <a class="xref" href="01-config-and-environment.html" title="<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">01. </a>Config & Environment">(<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">#1</a>)</a>: <code>CLOUDFLARE_ACCOUNT_ID</code>, <code>R2_ACCESS_KEY_ID</code>, <code>R2_SECRET_ACCESS_KEY</code> from <code>adws/core/environment.ts</code>.</li>
+<li><code>@aws-sdk/client-s3</code>, <code>core/logger</code>.</li>
+<li>BDD/scenario subsystem <a class="xref" href="08-bdd-scenario-subsystem.html" title="<a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">08. </a>BDD / scenario subsystem">(<a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">#8</a>)</a>: <code>ScenarioProofResult.artifactsDir</code> + the <code>ADW_PROOF_DIR</code> env-var seam for writing images.</li>
+<li>Downstream (depended on by):</li>
+<li>Phases &amp; orchestrators <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a>: <code>executeProofPublishPhase</code> in the workflow sequence.</li>
+<li>GitHub PR comment API (<code>commentOnPR</code>).</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">#8</a> BDD / scenario</td>
+<td>inbound</td>
+<td><code>ScenarioProofResult</code> (artifactsDir, tagResults); <code>ADW_PROOF_DIR</code> passed to scenario subprocesses so step defs write screenshots.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a> Phases &amp; orchestrators</td>
+<td>inbound</td>
+<td><code>executeProofPublishPhase</code> invoked in phase sequence; reads <code>ctx.scenarioProof</code>, <code>ctx.prUrl</code>, <code>repoContext</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">#1</a> Config &amp; Environment</td>
+<td>inbound</td>
+<td>R2 credentials + account ID; absence degrades gracefully (no upload, "<em>R2 not configured</em>" note).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a> GitContext</td>
+<td>inbound</td>
+<td><code>getRepoInfo()</code> / <code>repoContext.repoId</code> resolves <code>{owner, repo}</code>; <code>extractPrNumber(ctx.prUrl)</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">#5</a> Phase runner &amp; cost</td>
+<td>inbound</td>
+<td>Emits <code>PhaseCostRecord</code> (<code>proofPublish</code>, success, cost 0).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>GitHub (via #7/<a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a>)</td>
+<td>outbound</td>
+<td>Posts BDD Proof comment to the PR with <code>ADW_SIGNATURE</code> footer.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Cloudflare R2 / Worker</td>
+<td>outbound</td>
+<td><code>PutObject</code> to bucket; Worker <code>GetObject</code>/<code>DeleteBucket</code> serve and GC.</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li><code>adws/github/proofCommentFormatter.ts</code> exposes <code>screenshotUrls</code> (<code>ProofCommentInput</code>) and <code>reviewAgent.screenshots</code> is in the review JSON schema, both documented as "placeholder for future wiring" — the issue-comment review path does NOT upload or render screenshots. Only the separate PR-proof path (<code>prProofPublisher.ts</code>) actually moves images to R2 and embeds them. Two parallel proof-comment formatters exist with overlapping table logic.</li>
+</ul><nav class="footer-pager"><a href="14-docs-and-living-docs.html"><div class="dir">← Previous · 14</div><div class="ttl">Docs & living-docs</div></a><a class="next" href="16-supply-chain.html"><div class="dir">Next · 16 →</div><div class="ttl">Supply-chain</div></a></nav>
+</main>
+</div>
+</body>
+</html>

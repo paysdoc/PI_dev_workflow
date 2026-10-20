@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>08. BDD / scenario subsystem — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">08 / 16 — BDD / scenario subsystem</span><div class="spacer"></div><div class="pager"><a href="07-phases-and-orchestrators.html">← Phases & orchestrators</a><a href="09-coordination-kernel.html">Coordination kernel →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="current" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 08 of 16</div><h1>BDD / scenario subsystem</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_8.png" alt="Detail diagram for BDD / scenario subsystem"><figcaption>Figure 8 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>Drives BDD-driven validation across the SDLC pipeline: generating per-issue Gherkin scenarios from a GitHub issue, generating step definitions, reconciling the implementation plan against scenarios, running tag-filtered scenario suites as subprocesses (per-issue + regression), looping resolve+retest on failure with goal-fidelity and Gherkin-freeze governance, publishing PR proof, enforcing stack coherence, and sweeping per-issue scenarios for promotion into the curated regression suite. The plan/scenario contract is the operative artifact: scenarios encode issue intent, the plan must align to them, and the build must make them pass.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Scenario authoring (<code>/scenario_writer</code>) and step-def generation (<code>/generate_step_definitions</code>).</li>
+<li>Plan↔scenario reconciliation: multi-round validation+resolution loop OR single-pass alignment (two coexisting implementations).</li>
+<li>Scenario execution by tag via project-configured runner; JUnit-report-based pass/fail derivation.</li>
+<li>Scenario test→fix loop with bounded retries, Gherkin freeze enforcement, post-resolve goal-fidelity re-check, and hard-fail verdicts.</li>
+<li>Gherkin freeze: snapshot/detect/revert any <code>.feature</code> edits a resolve agent makes.</li>
+<li>Proof markdown + artifact harvesting; PR proof publish.</li>
+<li>Stack-coherence detection (language/Gherkin-mandate mismatch) → <code>adw-unverified</code> label.</li>
+<li>Step-def presence detection across BDD frameworks; framework→extension mapping.</li>
+<li>Promotion sweep: score per-issue scenarios, tag <code>@promotion-suggested-&lt;date&gt;</code>, comment, apply <code>hitl</code>; move human-approved <code>@promotion</code> scenarios into <code>features/regression/</code> via a separate PR.</li>
+<li>Vocabulary registry (rot-prevention rubric + canonical Gherkin phrase table).</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/scenarioPhase.ts</code></td>
+<td>Runs <code>/scenario_writer</code> (non-fatal); gated on <code>plan_validating</code> stage</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/stepDefPhase.ts</code></td>
+<td>Runs <code>/generate_step_definitions</code> (non-fatal)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/planValidationPhase.ts</code></td>
+<td>Multi-round validate→resolve→re-validate loop (<code>MAX_VALIDATION_RETRY_ATTEMPTS</code>); throws on exhaustion</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/alignmentPhase.ts</code></td>
+<td>Single-pass alignment; never throws (warnings only); gated on <code>plan_aligning</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/scenarioTestPhase.ts</code></td>
+<td>Runs scenarios via <code>runScenarioProof</code>, optionally inside <code>withDevServer</code>; skips when no scenarios configured</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/scenarioFixPhase.ts</code></td>
+<td>Resolves each failed tag, enforces Gherkin freeze, commits+pushes</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/scenarioTestFixLoop.ts</code></td>
+<td>Bounded test↔fix loop; resolve-verdict; post-resolve fidelity; throws <code>ScenarioHermeticityError</code>/<code>GoalFidelityError</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/scenarioProof.ts</code></td>
+<td>Per-tag run orchestration; JUnit-driven outcome; writes <code>scenario_proof.md</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/gherkinFreeze.ts</code></td>
+<td>Snapshot/detect/restore <code>.feature</code> files (fs at edges)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/proofPublishPhase.ts</code></td>
+<td>Harvests artifacts, uploads, posts PR proof comment (non-fatal)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/phases/stackCoherenceReporter.ts</code></td>
+<td>Runs coherence check → <code>ADW_UNVERIFIED_LABEL</code> + <code>stack_incoherent</code> comment</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/scenarioAgent.ts</code></td>
+<td><code>/scenario_writer</code> wrapper; filters ADW comments, extracts actionable content</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/stepDefAgent.ts</code></td>
+<td><code>/generate_step_definitions</code> wrapper; parses <code>removedScenarios</code> JSON</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/validationAgent.ts</code></td>
+<td><code>/validate_plan_scenarios</code>; <code>findScenarioFiles</code> (scans <code>@adw-{N}</code> tag)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/resolutionAgent.ts</code></td>
+<td><code>/resolve_plan_scenarios</code>; emits <code>ResolutionDecision[]</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/alignmentAgent.ts</code></td>
+<td><code>/align_plan_scenarios</code>; emits <code>AlignmentResult</code> (aligned/warnings/changes)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/scenarioFidelityAgent.ts</code></td>
+<td><code>/validate_scenario_fidelity</code>; reuses <code>ValidationResult</code> rail (scenarios vs issue body)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/agents/bddScenarioRunner.ts</code></td>
+<td><code>runScenariosByTag</code> subprocess executor (<code>{tag}</code> substitution, env injection)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/resolveFreezeGuard.ts</code></td>
+<td><code>evaluateResolveEdit</code> — reject if any changed path ends <code>.feature</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/resolveVerdict.ts</code></td>
+<td><code>computeResolveVerdict</code> → <code>pass</code>/<code>retry</code>/<code>hard-fail</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/testReportParser.ts</code></td>
+<td>JUnit XML → <code>TestReport</code> (bare <code>&lt;failure/&gt;</code>=skipped for pending/undefined)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/testVerdict.ts</code></td>
+<td><code>computeTestVerdict</code> → <code>pass</code>/<code>hard-fail</code>/<code>warn</code> (unit-test gate)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/stepDefDetection.ts</code></td>
+<td><code>stepDefExtensionsFor</code>, <code>isGherkinFramework</code>, <code>hasStepDefinitions</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/stackCoherenceCheck.ts</code></td>
+<td>Language-token inference; <code>language-mismatch</code>/<code>non-gherkin-bdd</code> warnings</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/adwPromotionSweep.tsx</code></td>
+<td>CLI orchestrator: commenter + mover passes on per-issue PR events</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/promotion/</code></td>
+<td><code>promotionScorer</code>, <code>promotionThreshold</code>, <code>promotionCommenter</code>, <code>promotionMover</code>, <code>vocabularyParser</code>, <code>scenarioParser</code>, <code>promotionTagWriter</code>, <code>promotionApprovalDetector</code>, <code>promotionStatsLoader</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>features/per-issue/feature-*.feature</code></td>
+<td>Per-issue agent-input scenarios (<code>@adw-{N}</code>)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>features/regression/</code></td>
+<td>Curated <code>@regression</code> suite: <code>smoke/</code>, <code>surfaces/</code>, <code>multilang/</code>, <code>step_definitions/</code>, <code>vocabulary.md</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>templates/vocabulary.md.template</code></td>
+<td>Vocabulary registry scaffold (rot rubric + phrase table) copied by <code>adw_init</code></td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<p><strong>Pipeline placement (adwSdlc):</strong> <code>plan ‖ scenario</code> (parallel) → <code>alignment</code> → <code>build</code> → <code>stepDef</code> → <code>unitTest</code> → <code>runScenarioTestFixLoop</code> → review/patch loop (re-runs <code>scenarioTestPhase</code>) → document → PR → <code>proofPublish</code>. (<code>planValidationPhase</code> is the older multi-round alternative to <code>alignmentPhase</code>.)</p>
+<p><strong>Scenario authoring:</strong> <code>scenarioAgent</code> builds issue JSON (human comments only, latest actionable comment), invokes <code>/scenario_writer</code> with cwd=worktree. The command is polymorphic on <code>.adw/scenarios.md</code> (<code>Per-Issue Scenario Directory</code>, <code>Regression Scenario Directory</code> → skip auto-promotion sweep) and carries a Rot-Prevention block prohibiting file-existence/file-content-substring/structural-source assertions.</p>
+<p><strong>Alignment vs validation:</strong> <code>alignmentPhase</code> runs one <code>/align_plan_scenarios</code> pass, uses the issue as sole truth, flags unresolvable conflicts as plan warnings, commits if changes. <code>planValidationPhase</code> runs <code>/validate_plan_scenarios</code>; on misalignment loops <code>/resolve_plan_scenarios</code>→re-validate up to <code>MAX_VALIDATION_RETRY_ATTEMPTS</code>, throwing on exhaustion. Both skip when no plan or no <code>@adw-{N}</code> scenario files exist. Output-parse exhaustion (<code>OutputValidationError</code>) degrades to warn/aligned.</p>
+<p><strong>Scenario execution:</strong> <code>runScenarioProof</code> pre-flight-checks step-def presence (<code>hasStepDefinitions</code> with framework-derived extensions); if absent, writes a skip proof and returns no blockers. For each <code>reviewProofConfig.tags</code> entry, substitutes <code>{issueNumber}</code>, runs <code>runScenariosByTag</code> (env: <code>ADW_JUNIT_REPORT_PATH</code>, <code>ADW_PROOF_DIR</code>), reads the JUnit report, and derives outcome (<code>deriveTagOutcome</code>): report-present uses pass/fail counts (with a warning when exit code disagrees but report is clean); report-absent falls back to exit code; optional tags with zero scenarios are skipped. <code>hasBlockerFailures</code> = any non-skipped <code>blocker</code>-severity tag failed.</p>
+<p><strong>Test→fix loop:</strong> <code>runScenarioTestFixLoop</code> runs <code>scenarioTestPhase</code>; on first-pass green (no retries) returns immediately. On blocker failures it computes <code>computeResolveVerdict(targetPass,regressionPass,budgetRemaining)</code>: <code>retry</code>→run <code>scenarioFixPhase</code> then retest; <code>hard-fail</code>→throw <code>ScenarioHermeticityError</code>. After a resolve makes scenarios green, it runs <code>scenarioFidelityAgent</code> (scenarios vs issue body); <code>postResolveAligned===false</code>→<code>hard-fail</code>→throw <code>GoalFidelityError</code>. <code>@regression</code> failure counts as not-green.</p>
+<p><strong>Gherkin freeze:</strong> <code>scenarioFixPhase</code> snapshots all <code>.feature</code> files before resolve; after, <code>evaluateResolveEdit</code> rejects if any <code>.feature</code> changed and <code>restoreGherkinSnapshot</code> reverts them (recorded as <code>gherkinFreezeViolations</code>).</p>
+<p><strong>Stack coherence:</strong> <code>reportStackCoherence</code> (run from unitTestPhase/issue-comments path) infers language tokens across <code>testFramework</code>/<code>bddFramework</code>/<code>runTests</code>/<code>runScenariosByTag</code>; &gt;1 language → <code>language-mismatch</code>; non-Gherkin BDD → <code>non-gherkin-bdd</code>; warnings apply <code>adw-unverified</code> label + <code>stack_incoherent</code> comment.</p>
+<p><strong>Promotion sweep (separate CLI, per-issue PR events):</strong> finds the per-issue PR; <strong>commenter</strong> scores each changed per-issue scenario (<code>score</code>: surfaceMatch 3, subprocess 3 / phase-import 2 / mock-query 0, +1 per extra When-phase), compares to <code>computeThreshold</code> (auto-ramping <code>BOOTSTRAP_THRESHOLD</code>3..<code>MAX_THRESHOLD</code>7 by 90-day promoted/per-issue ratio, <code>RATIO_CAP</code>0.5); at-or-above-threshold scenarios get <code>@promotion-suggested-&lt;today&gt;</code> inserted (byte-preserving) and a single PR comment, and <code>hitl</code> label is applied. <strong>mover</strong> detects bare <code>@promotion</code> (human-approved) scenarios and opens a separate regression-promotion PR moving them into <code>features/regression/</code>.</p>
+<h2>Data Structures</h2>
+<ul>
+<li><code>ScenarioProofResult { tagResults:TagProofResult[]; hasBlockerFailures; resultsFilePath; artifactsDir }</code></li>
+<li><code>TagProofResult { tag; resolvedTag; severity:'blocker'|'tech-debt'; optional; passed; output; exitCode; skipped; warning?; counts?; cases? }</code></li>
+<li><code>BddScenarioResult { allPassed; stdout; stderr; exitCode }</code></li>
+<li><code>TestReport { total; passed; failed; skipped; cases:TestCaseResult[] }</code>; <code>TestCaseResult { name; classname?; status; failureMessage? }</code></li>
+<li><code>ValidationResult { aligned; mismatches:MismatchItem[]; summary }</code>; <code>MismatchItem { type:'plan_only'|'scenario_only'|'conflicting'; description; planReference?; scenarioReference? }</code></li>
+<li><code>ResolutionResult { resolved; decisions:ResolutionDecision[] }</code>; <code>ResolutionDecision { mismatch; action:'updated_plan'|'updated_scenarios'|'updated_both'; reasoning }</code></li>
+<li><code>AlignmentResult { aligned; warnings; changes; summary }</code></li>
+<li><code>ResolveVerdictSignals</code>/<code>ResolveVerdictOutcome</code> (<code>pass</code>/<code>retry</code>/<code>hard-fail</code>); <code>TestVerdictInput</code>/<code>TestVerdictResult</code> (<code>pass</code>/<code>hard-fail</code>/<code>warn</code>)</li>
+<li><code>StackCoherenceResult { ok; warnings:StackCoherenceWarning[] }</code> (<code>language-mismatch</code>/<code>non-gherkin-bdd</code>)</li>
+<li>Promotion: <code>ScoreResult</code>, <code>VocabularyRegistry</code>, <code>Scenario</code>, <code>PromotionStats</code>, <code>TagState</code>, <code>MovedScenarioResult</code></li>
+<li>Snapshot: <code>Map&lt;relPath,content&gt;</code> for <code>.feature</code> files</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>Phases: <code>executeScenarioPhase</code>, <code>executeStepDefPhase</code>, <code>executePlanValidationPhase</code>, <code>executeAlignmentPhase</code>, <code>executeScenarioTestPhase</code>, <code>executeScenarioFixPhase</code>, <code>runScenarioTestFixLoop</code>, <code>executeProofPublishPhase</code>, <code>reportStackCoherence</code></li>
+<li>Agents: <code>runScenarioAgent</code>, <code>runStepDefAgent</code>, <code>runValidationAgent</code>, <code>runResolutionAgent</code>, <code>runAlignmentAgent</code>, <code>runScenarioFidelityAgent</code>, <code>runScenariosByTag</code>, <code>findScenarioFiles</code>, <code>readScenarioContents</code></li>
+<li>Pure cores: <code>computeResolveVerdict</code>, <code>computeTestVerdict</code>, <code>evaluateResolveEdit</code>, <code>parseJUnitXml</code>/<code>readJUnitReport</code>, <code>stackCoherenceCheck</code>, <code>stepDefExtensionsFor</code>/<code>isGherkinFramework</code>/<code>hasStepDefinitions</code>, <code>runScenarioProof</code>/<code>shouldRunScenarioProof</code>, <code>captureGherkinSnapshot</code>/<code>collectChangedFeaturePaths</code>/<code>restoreGherkinSnapshot</code></li>
+<li>Freeze guards: <code>ScenarioHermeticityError</code>, <code>GoalFidelityError</code></li>
+<li>Promotion: <code>runPromotionCommenter</code>, <code>runPromotionMover</code>, <code>score</code>, <code>computeThreshold</code>, <code>parseVocabulary</code>, <code>parseScenarios</code>, <code>loadPromotionStats</code>, <code>detectApprovals</code></li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li>Agent execution <a class="xref" href="04-agent-execution.html" title="<a class="xref" href="04-agent-execution.html" title="04. Agent execution">04. </a>Agent execution">(<a class="xref" href="04-agent-execution.html" title="04. Agent execution">#4</a>)</a> — <code>runCommandAgent</code>/<code>CommandAgentConfig</code>/<code>OutputValidationError</code>; cost/model usage.</li>
+<li>Phase runner &amp; cost-tracking composition <a class="xref" href="05-phase-runner-and-cost-tracking.html" title="<a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">05. </a>Phase runner & cost-tracking composition">(<a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">#5</a>)</a> — <code>runPhase</code>/<code>runPhasesParallel</code>/<code>CostTracker</code>, <code>createPhaseCostRecords</code>.</li>
+<li>State &amp; ADW ID <a class="xref" href="02-state-and-adw-id.html" title="<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">02. </a>State & ADW ID">(<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">#2</a>)</a> — <code>AgentStateManager</code>, <code>shouldExecuteStage</code>.</li>
+<li>Config &amp; Environment <a class="xref" href="01-config-and-environment.html" title="<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">01. </a>Config & Environment">(<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">#1</a>)</a> — <code>projectConfig.scenarios</code>/<code>commands</code>/<code>reviewProofConfig</code>/<code>scenariosMd</code>, <code>MAX_*_RETRY_ATTEMPTS</code>, <code>withDevServer</code>.</li>
+<li>GitContext <a class="xref" href="03-gitcontext.html" title="<a class="xref" href="03-gitcontext.html" title="03. GitContext">03. </a>GitContext">(<a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a>)</a> — <code>gitContextFor</code>, <code>pushBranch</code>, worktree ops (fix + mover).</li>
+<li>Downstream (depended on by):</li>
+<li>Phases &amp; orchestrators <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a> — all 6 orchestrators wire these phases.</li>
+<li>Auto-merge / HITL + resilience queues <a class="xref" href="11-automerge-hitl-resilience.html" title="<a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience queues">(<a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">#11</a>)</a> — <code>hitl</code> label gates auto-merge.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Agent execution <a class="xref" href="04-agent-execution.html" title="<a class="xref" href="04-agent-execution.html" title="04. Agent execution">04. </a>Agent execution">(<a class="xref" href="04-agent-execution.html" title="04. Agent execution">#4</a>)</a></td>
+<td>calls</td>
+<td><code>/scenario_writer</code>, <code>/generate_step_definitions</code>, <code>/validate_plan_scenarios</code>, <code>/resolve_plan_scenarios</code>, <code>/align_plan_scenarios</code>, <code>/validate_scenario_fidelity</code> via <code>runCommandAgent</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Phases &amp; orchestrators <a class="xref" href="07-phases-and-orchestrators.html" title="<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">07. </a>Phases & orchestrators">(<a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">#7</a>)</a></td>
+<td>called by</td>
+<td>scenario/stepDef/alignment/validation/test/fix/proof phases composed into SDLC pipeline</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Phase runner &amp; cost <a class="xref" href="05-phase-runner-and-cost-tracking.html" title="<a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">05. </a>Phase runner & cost-tracking composition">(<a class="xref" href="05-phase-runner-and-cost-tracking.html" title="05. Phase runner & cost-tracking composition">#5</a>)</a></td>
+<td>provides/consumes</td>
+<td><code>runPhase</code>/<code>CostTracker</code>; emits <code>PhaseCostRecord[]</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>State &amp; ADW ID <a class="xref" href="02-state-and-adw-id.html" title="<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">02. </a>State & ADW ID">(<a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">#2</a>)</a></td>
+<td>reads/writes</td>
+<td>per-agent state dirs, stage-gate (<code>plan_validating</code>/<code>plan_aligning</code>), orchestrator log</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Config &amp; Environment <a class="xref" href="01-config-and-environment.html" title="<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">01. </a>Config & Environment">(<a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">#1</a>)</a></td>
+<td>reads</td>
+<td><code>.adw/scenarios.md</code>/<code>commands.md</code> config; dev-server wrap</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>GitContext <a class="xref" href="03-gitcontext.html" title="<a class="xref" href="03-gitcontext.html" title="03. GitContext">03. </a>GitContext">(<a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a>)</a></td>
+<td>calls</td>
+<td>commit/push fixes; worktree+PR for promotion mover</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Cost telemetry &amp; D1 <a class="xref" href="13-cost-telemetry-and-d1.html" title="<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry & D1">(<a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">#13</a>)</a></td>
+<td>feeds</td>
+<td>JUnit/proof artifacts and phase cost records</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Auto-merge / HITL <a class="xref" href="11-automerge-hitl-resilience.html" title="<a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience queues">(<a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">#11</a>)</a></td>
+<td>signals</td>
+<td><code>hitl</code> label (promotion), <code>adw-unverified</code> label (stack-incoherent), blocker verdicts halt pipeline</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Screenshots <a class="xref" href="15-screenshots.html" title="<a class="xref" href="15-screenshots.html" title="15. Screenshots">15. </a>Screenshots">(<a class="xref" href="15-screenshots.html" title="15. Screenshots">#15</a>)</a></td>
+<td>produces</td>
+<td><code>ADW_PROOF_DIR</code> artifacts harvested by <code>proofPublishPhase</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Triggers <a class="xref" href="10-triggers.html" title="<a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers">(<a class="xref" href="10-triggers.html" title="10. Triggers">#10</a>)</a></td>
+<td>invoked by</td>
+<td><code>adwPromotionSweep.tsx</code> on per-issue PR events (external trigger)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td>Docs/issue comments</td>
+<td>posts</td>
+<td>stage comments (<code>plan_aligning</code>/<code>plan_validated</code>/<code>stack_incoherent</code>/...)</td>
+</tr>
+</tbody>
+</table>
+<h2>CLAUDE-CODE TOUCHPOINTS</h2>
+<p>Slash commands (all via <code>runCommandAgent</code>, cwd=worktree): <code>/scenario_writer</code>, <code>/generate_step_definitions</code>, <code>/validate_plan_scenarios</code>, <code>/resolve_plan_scenarios</code>, <code>/align_plan_scenarios</code>, <code>/validate_scenario_fidelity</code>. Scenario/regression <em>execution</em> is subprocess-only (<code>runScenariosByTag</code> via <code>cucumber-js</code> etc.) — no agent cost. The <code>implement-tdd</code> skill (build phase) consumes <code>@adw-{N}</code> <code>.feature</code> files as RED tests.</p>
+<h2>PRD Divergences</h2>
+<ul>
+<li><strong>tdd-bdd-integration.md</strong> — <em>partially implemented</em>. <code>alignmentPhase</code> (single-pass) exists, but the older <code>planValidationPhase</code> multi-round loop is still present and wired in some orchestrators; both coexist. <code>stepDefPhase</code> was NOT dropped (PRD called to "drop the separate step definition generation phase entirely" since the build agent would generate step defs in its TDD loop) — <code>executeStepDefPhase</code> still runs in adwSdlc after build. Post-resolve fidelity check (<code>scenarioFidelityAgent</code>) and Gherkin freeze are implemented as additional governance.</li>
+<li><strong>scenario-rot-prevention-and-promotion.md</strong> — <em>fully implemented</em>. Rot-prevention block in <code>scenario_writer.md</code>, scored promotion (<code>promotionScorer</code>), auto-ramping threshold (<code>computeThreshold</code>), <code>@promotion-suggested-&lt;date&gt;</code> tag + PR comment + <code>hitl</code> gate, human <code>@promotion</code> edit → mover PR into <code>features/regression/</code>. Vocabulary registry template present; <code>vocabulary.md.template</code> "Observability Surfaces" section is still a TODO stub (slice <a class="xref" href="03-gitcontext.html" title="03. GitContext">#3</a> unfilled).</li>
+<li><strong>bdd-rewrite-tiered-regression.md</strong> — <em>fully implemented</em>. <code>features/regression/</code> vs <code>features/per-issue/</code> folder split, fixed-vocabulary DSL, hybrid execution model (<code>smoke/</code> + <code>surfaces/</code>). 14-day cron retirement sweep is referenced as external cron, not in this subsystem's source.</li>
+<li><strong>bdd-rewrite-surface-matrix.md</strong> — <em>fully implemented</em> as authored scenarios under <code>features/regression/surfaces/</code> (<code>row-NN-*.feature</code>).</li>
+<li><strong>multi-language-test-and-bdd-support.md</strong> — <em>partially implemented</em>. Framework→extension map (<code>stepDefDetection</code>), Gherkin-mandate + language-coherence checks (<code>stackCoherenceCheck</code>), JUnit-report-based verdicts (replacing stdout-regex), <code>testVerdict</code> zero-testcase discovery-break guard, and <code>ADW_PROOF_DIR</code> artifact harvesting are all present. <code>features/regression/multilang/python_fixture_e2e.feature</code> exercises a Python path. The durable unit-test gate moving out of <code>project.md</code> is not visible in this subsystem (lives in config <a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">#1</a>).</li>
+</ul><nav class="footer-pager"><a href="07-phases-and-orchestrators.html"><div class="dir">← Previous · 07</div><div class="ttl">Phases & orchestrators</div></a><a class="next" href="09-coordination-kernel.html"><div class="dir">Next · 09 →</div><div class="ttl">Coordination kernel</div></a></nav>
+</main>
+</div>
+</body>
+</html>

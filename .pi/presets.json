@@ -1,0 +1,23 @@
+{
+  "plan": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "thinkingLevel": "high",
+    "tools": ["read", "grep", "find", "ls"],
+    "instructions": "You are in PLANNING MODE. Read files thoroughly, explore the codebase, and create a detailed plan. DO NOT make any changes."
+  },
+  "implement": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "thinkingLevel": "high",
+    "tools": ["read", "bash", "edit", "write"],
+    "instructions": "You are in IMPLEMENTATION MODE. Make focused, correct changes. Read files before editing. Run tests after changes."
+  },
+  "review": {
+    "provider": "openai",
+    "model": "o3",
+    "thinkingLevel": "medium",
+    "tools": ["read", "grep", "find", "ls"],
+    "instructions": "You are in REVIEW MODE. Analyze code for bugs, security issues, and performance problems. DO NOT make changes."
+  }
+}

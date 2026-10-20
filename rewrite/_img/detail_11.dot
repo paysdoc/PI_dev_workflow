@@ -1,0 +1,26 @@
+digraph G {
+  rankdir=LR; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, width=1.5, height=0.6, margin="0.08,0.05"];
+  edge [fontname="Helvetica", fontsize=8, color="#999999", fontcolor="#555555", arrowsize=0.6];
+  graph [ranksep=1.6, nodesep=0.18];
+  11 [label="11. Auto-merge / HITL\n+ resilience", fillcolor="#7a2f4a", fontcolor="white", color="#111111", penwidth=3];
+
+  2 [label="2. State &\nADW ID", fillcolor="#33485ebb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  4 [label="4. Agent\nexecution", fillcolor="#2f6b6bbb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  6 [label="6. Provider\nabstraction", fillcolor="#5a4a86bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  7 [label="7. Phases &\norchestrators", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  9 [label="9. Coordination\nkernel", fillcolor="#7a2f4abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  10 [label="10. Triggers", fillcolor="#214d8abb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  11 -> 2 [label="pause/merge stages", color="#7a2f4a", penwidth=1.4];
+  11 -> 6 [label="PR merge/approve", color="#7a2f4a", penwidth=1.4];
+  11 -> 4 [label="rate-limit/auth signals", color="#7a2f4a", penwidth=1.4];
+  11 -> 9 [label="spawn locks, takeover", color="#7a2f4a", penwidth=1.4];
+  7 -> 11 [label="awaiting_merge handoff", color="#2f6b6b", penwidth=1.4, style=dashed];
+  10 -> 11 [label="scan pause/auth queues", color="#2f6b6b", penwidth=1.4, style=dashed];
+}

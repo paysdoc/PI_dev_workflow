@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>03. GitContext — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">03 / 16 — GitContext</span><div class="spacer"></div><div class="pager"><a href="02-state-and-adw-id.html">← State & ADW ID</a><a href="04-agent-execution.html">Agent execution →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="current" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 03 of 16</div><h1>GitContext</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_3.png" alt="Detail diagram for GitContext"><figcaption>Figure 3 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p><code>GitContext</code> is the single deep-module authority for all git and <code>gh</code> I/O in ADW. It answers two questions per operation correctly and unambiguously: <em>which repo's filesystem</em> (base path / <code>cwd</code>) and <em>which repo's auth</em> (token + git identity). Base-path resolution lives only in its constructor; auth is injected per spawned command via the child-process environment — never by mutating <code>process.env</code>. The package (<code>adws/gitContext/</code>) is dependency-injectable and carries no ADW globals; ADW-specific wiring lives in adapter/factory layers outside the package.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Construct from a <strong>mandatory</strong> identity (<code>owner</code>, <code>repo</code>, <code>selfHost</code>, <code>token</code>, <code>gitIdentity</code>, <code>frameworkRepoRoot</code>, <code>targetReposDir</code>); incomplete/empty identity is a hard construction error (<code>assertCompleteIdentity</code>).</li>
+<li>Resolve base path once: <code>selfHost</code> → <code>frameworkRepoRoot</code>; target → <code>join(targetReposDir, owner, repo)</code>. No optional base path, no <code>cwd</code> fallback.</li>
+<li>Route every git/<code>gh</code> call through one private <code>#run()</code> chokepoint that injects <code>GH_TOKEN</code> (or PAT) + <code>GIT_AUTHOR_*</code>/<code>GIT_COMMITTER_*</code> into the child env over a copy of <code>process.env</code>, with explicit <code>cwd</code>.</li>
+<li>Branch ops (current/delete local+remote, merge-from-default, fetch-and-reset), commit/push ops (force-with-lease push with stale-lease detection, commit, head-tree-hash, dirty check), worktree create/ensure/query/list/remove/reset/path-lookup, and <code>gh</code> issue/PR/label/Projects-V2-board operations.</li>
+<li>Worktree-path computation (<code>worktreePathFor</code> → <code>join(basePath, '.worktrees', sanitizedBranch)</code>), env-file copy into worktrees, and process-kill cleanup before worktree removal.</li>
+<li>Pure command-string builders (issue/PR/label/board) live in <code>commands/</code>; package-private ops modules take an injected runner so they are testable without a real context.</li>
+<li>Boundary wiring: build exactly one context per process launch from launch identity; cross-check launch identity against persisted state (detect, not silently resolve).</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/gitContext.ts</code></td>
+<td>The <code>GitContext</code> class — constructor, identity assertion, base-path resolve, <code>#run</code> chokepoint, <code>commandEnv</code>, all public methods</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/types.ts</code></td>
+<td><code>GitContextOptions</code>, <code>GitIdentity</code>, <code>GitContextDeps</code>, <code>ExecFn</code>, <code>FsDeps</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/index.ts</code></td>
+<td>Standalone public surface (exports <code>GitContext</code>, types, <code>killProcessesInDirectory</code>) — no free git/gh functions</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/branchOps.ts</code></td>
+<td>Branch op orchestration; <code>PROTECTED_BRANCHES</code> (main/master/develop) guard</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/commitOps.ts</code></td>
+<td>Commit + <code>--force-with-lease --force-if-includes</code> push; <code>isLeaseRejection</code> stale-lease detection</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/worktreeCreateOps.ts</code></td>
+<td>create / createForNewBranch / ensure; branch-checked-out-elsewhere + free-from-main-repo logic; env copy</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/worktreeQueryOps.ts</code></td>
+<td>listWorktrees, findWorktreeForIssue, getWorktreeForBranch (porcelain parsing)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/worktreeRemoveOps.ts</code></td>
+<td>removeWorktree / removeWorktreesForIssue with prune+rm fallback</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/worktreeResetOps.ts</code></td>
+<td>Takeover reset: abort merge/rebase, fetch + <code>reset --hard origin/branch</code> + <code>clean -fdx</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/processCleanup.ts</code></td>
+<td><code>killProcessesInDirectory</code> via <code>lsof +D</code> → SIGTERM/SIGKILL</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/gitContext/commands/{issue,pr,label,board}Commands.ts</code></td>
+<td>Pure <code>gh</code> command-string builders + board GraphQL queries/parsers</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/launchGitContext.ts</code></td>
+<td>Boundary adapter <code>buildLaunchGitContext(targetRepo, deps)</code>; token + git-identity resolution chains</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/github/gitContextFactory.ts</code></td>
+<td>Factory <code>gitContextFor</code>/<code>gitContextForSync</code>/<code>gitContextForRepo</code>; self-host owner/repo cache</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/repoIdentityCrossCheck.ts</code></td>
+<td><code>crossCheckRepoIdentity</code>, <code>RepoIdentityMismatchError</code>, <code>sameRepoIdentity</code></td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/checkGitGhGuard.ts</code></td>
+<td>CI guard (AST scan) failing the build on direct git/gh shell-outs outside the package + allowlist</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/vcs/index.ts</code> (+ <code>branchOperations</code>, <code>branchIdentity</code>, <code>worktreeOperations</code>, <code>worktreeProbe</code>, <code>worktreeReuseGate</code>)</td>
+<td>Legacy/residual: pure branch-name vocabulary, deterministic branch-name fallback, <code>getMainRepoPath</code>, worktree probe/reuse-decision helpers</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ul>
+<li><strong>Construction</strong>: <code>assertCompleteIdentity</code> rejects empty <code>owner/repo/token/frameworkRepoRoot/targetReposDir</code>, non-boolean <code>selfHost</code>, and any empty <code>gitIdentity</code> field; <code>resolveBasePath</code> then fixes base path immutably. <code>deps.exec</code>/<code>deps.fsDeps</code> default to real <code>execSync</code> wrapper / real <code>fs</code>.</li>
+<li><strong>Per-command auth</strong>: <code>commandEnv</code> overlays token + git identity onto a base env; <code>#run</code> passes <code>cwd ?? basePath</code>, the overlaid env, and optional stdin <code>input</code>, trimming output. PAT path (<code>usePat</code>) used for <code>approvePR</code> (bot self-approval forbidden), <code>runGraphQL</code>, and all <code>moveIssueToStatus</code> board calls (App tokens lack Projects V2 on user repos).</li>
+<li><strong>Worktree create</strong>: ensures <code>.worktrees/</code> dir; resolves branch existence (local → <code>origin/</code> → fetch); if checked out in main repo, auto-commits WIP + pushes + checks out default branch to free it; if checked out elsewhere, reuses; else <code>git worktree add</code> (existing branch) or <code>add -b … origin/base</code> (new). <code>ensureWorktree</code> reuses existing and copies <code>.env</code>/<code>.env.local</code> in.</li>
+<li><strong>Push</strong>: <code>pushBranch</code> does a best-effort fetch then force-with-lease; on lease rejection (<code>stale info</code> / <code>remote ref updated since checkout</code>) throws a guidance error rather than blindly retrying (PRD story 3).</li>
+<li><strong>Takeover reset</strong>: <code>resetWorktree</code> resolves git-dir, aborts in-flight merge/rebase (git command then fs fallback), fetches and hard-resets to <code>origin/branch</code>, cleans untracked.</li>
+<li><strong>Board move</strong>: <code>moveIssueToStatus</code> chains project-id → item → status-field queries, fuzzy-matches the target option, short-circuits if already at status, swallows parse/exec failures to <code>false</code>.</li>
+<li><strong>Boundary</strong>: <code>buildLaunchGitContext</code> discriminates on <code>--target-repo</code> presence (target → context under <code>targetReposDir</code>; null → self-host from local remote via <code>getRepoInfo</code>); token chain App-installation → <code>GITHUB_PAT</code> → <code>gh auth token</code> → <code>GH_TOKEN</code> (throws if none); identity chain App-slug bot → <code>GIT_*</code> env → <code>git config</code> → built-in <code>ADW Bot</code>.</li>
+<li><strong>Cross-check</strong>: <code>workflowInit</code> derives launch identity from the context, writes <code>repoIdentity</code> into top-level state, and calls <code>crossCheckRepoIdentity(launch, persisted)</code>; mismatch throws <code>RepoIdentityMismatchError</code> (launch boundary is authoritative; missing persisted field is harmless — no backfill).</li>
+<li><strong>Guard</strong>: <code>checkGitGhGuard</code> AST-scans all sources (skipping <code>adws/gitContext/**</code>, tests, node_modules, plus a justified <code>ALLOWLIST</code>) and exits 1 on any call whose first arg string matches <code>^(git|gh)(\s|$)</code>.</li>
+</ul>
+<h2>Data Structures</h2>
+<ul>
+<li><code>GitContextOptions</code> — <code>owner</code>, <code>repo</code>, <code>selfHost: boolean</code>, <code>token</code>, <code>gitIdentity: GitIdentity</code>, <code>frameworkRepoRoot</code>, <code>targetReposDir</code>, optional <code>pat</code>.</li>
+<li><code>GitIdentity</code> — <code>authorName/authorEmail/committerName/committerEmail</code>.</li>
+<li><code>GitContextDeps</code> — optional <code>exec: ExecFn</code>, <code>fsDeps: FsDeps</code> (injection seams).</li>
+<li><code>ExecFn</code> — <code>(command, { cwd, env, input? }) =&gt; string</code>.</li>
+<li><code>WorktreeForIssueResult</code> — <code>{ worktreePath, branchName }</code>.</li>
+<li><code>RepoIdentity</code> (<code>agentTypes.ts</code>) — <code>{ owner, repo }</code>; persisted on <code>AgentState.repoIdentity</code>; distinct from <code>GitIdentity</code> and provider <code>RepoIdentifier</code>.</li>
+<li><code>PROTECTED_BRANCHES</code> = <code>['main','master','develop']</code>.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>Class <code>GitContext</code>: getters <code>basePath</code>/<code>owner</code>/<code>repo</code>/<code>selfHost</code>; <code>worktreePathFor</code>, <code>commandEnv</code>, <code>defaultBranch</code>.</li>
+<li>Branch: <code>getCurrentBranch</code>, <code>mergeLatestFromDefaultBranch</code>, <code>fetchAndResetToRemote</code>, <code>deleteLocalBranch</code>, <code>deleteRemoteBranch</code>.</li>
+<li>Commit/push: <code>commitChanges</code>, <code>pushBranch</code>, <code>getHeadTreeHash</code>, <code>hasUncommittedChanges</code>.</li>
+<li>Worktree: <code>createWorktree</code>, <code>createWorktreeForNewBranch</code>, <code>ensureWorktree</code>, <code>getWorktreeForBranch</code>, <code>listWorktrees</code>, <code>findWorktreeForIssue</code>, <code>removeWorktree</code>, <code>removeWorktreesForIssue</code>, <code>resetWorktree</code>, <code>copyEnvToWorktree</code>.</li>
+<li>GitHub issue: <code>fetchIssue</code>, <code>commentOnIssue</code>, <code>issueState</code>, <code>closeIssue</code>, <code>issueTitle</code>, <code>fetchIssueComments</code>, <code>issueHasLabel</code>, <code>addIssueLabel</code>, <code>createIssue</code>, <code>updateIssueBody</code>, <code>findOpenUpgradeIssue</code>, <code>deleteIssueComment</code>, <code>authenticatedUser</code>.</li>
+<li>GitHub PR: <code>findPRByBranch</code>, <code>fetchPRDetails</code>, <code>fetchPRReviews</code>, <code>fetchPRReviewComments</code>, <code>commentOnPR</code>, <code>mergePR</code>, <code>approvePR</code>, <code>prApprovalState</code>, <code>fetchPRList</code>, <code>fetchAllPRs</code>, <code>createPR</code>.</li>
+<li>Label/board: <code>createLabel</code>, <code>applyLabel</code>, <code>runGraphQL</code>, <code>moveIssueToStatus</code>.</li>
+<li>Adapters/helpers: <code>buildLaunchGitContext</code>, <code>gitContextFor</code>/<code>gitContextForSync</code>/<code>gitContextForRepo</code>, <code>crossCheckRepoIdentity</code>, <code>killProcessesInDirectory</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li><strong><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</strong> — <code>REPO_ROOT</code>, <code>TARGET_REPOS_DIR</code>, <code>GITHUB_PAT</code> injected at the boundary.</li>
+<li>GitHub App auth (<code>githubAppAuth.ts</code>) for installation-token minting; <code>getRepoInfo</code> for self-host owner/repo.</li>
+<li>Node <code>child_process</code> (<code>execSync</code>), <code>fs</code>, <code>path</code>; <code>lsof</code> for process cleanup.</li>
+<li><code>core.log</code> (used by worktree create/remove ops for logging only).</li>
+<li>Downstream (depended on by):</li>
+<li><strong><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</strong> — every phase receives the threaded <code>GitContext</code> and performs all git/<code>gh</code> through it.</li>
+<li><strong><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</strong> — cron/webhook/takeover/cancel handlers construct and thread contexts per process/event.</li>
+<li><strong><a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">6. </a>Provider abstraction</strong> — GitHub code-host &amp; board-manager providers delegate to context factories.</li>
+<li><strong><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</strong> — <code>repoIdentity</code> persisted into top-level state for cross-check.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="01-config-and-environment.html" title="01. Config & Environment">1. </a>Config &amp; Environment</td>
+<td>depends-on</td>
+<td><code>REPO_ROOT</code>, <code>TARGET_REPOS_DIR</code>, <code>GITHUB_PAT</code>, App auth config injected at construction</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="02-state-and-adw-id.html" title="02. State & ADW ID">2. </a>State &amp; ADW ID</td>
+<td>called-by / writes</td>
+<td>launch <code>RepoIdentity</code> persisted to top-level state; read back as cross-check</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</td>
+<td>provides</td>
+<td>base path / worktree <code>cwd</code> and env for agent subprocesses (<code>getMainRepoPath</code>)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">6. </a>Provider abstraction</td>
+<td>called-by</td>
+<td>code-host/board providers call <code>gitContextFor*</code> factories for git/gh ops</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>called-by</td>
+<td>threaded context performs all branch/commit/worktree/issue/PR ops</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</td>
+<td>called-by</td>
+<td>cron/webhook/takeover build per-launch/per-event contexts; cross-repo isolation</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="11-automerge-hitl-resilience.html" title="11. Auto-merge / HITL + resilience queues">11. </a>Auto-merge / HITL + resilience</td>
+<td>called-by</td>
+<td>PR merge/approve, worktree reset on takeover, board status moves</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="12-framework-self-upgrade.html" title="12. Framework self-upgrade">12. </a>Framework self-upgrade</td>
+<td>called-by</td>
+<td><code>findOpenUpgradeIssue</code>, upgrade-claim git ops (allowlisted bootstrap path)</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="16-supply-chain.html" title="16. Supply-chain">16. </a>Supply-chain</td>
+<td>enforced-by</td>
+<td><code>checkGitGhGuard</code> CI rule forbids direct git/gh outside the package</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<ul>
+<li><strong>Two boundary builders, not one.</strong> The PRD specifies a single launch-boundary adapter; the code ships both <code>buildLaunchGitContext</code> (<code>core/launchGitContext.ts</code>) and a parallel <code>gitContextFactory.ts</code> (<code>gitContextFor*</code>, <code>gitContextForRepo</code> with a module-level self-host owner/repo cache). Their token/identity resolution chains overlap but are duplicated, not shared.</li>
+<li><strong>Transitional global auth still present.</strong> The PRD calls for removing process-global token mutation; <code>buildLaunchGitContext</code>'s doc comment acknowledges <code>activateGitHubAppAuth()</code> is still invoked at process entry to provision not-yet-migrated consumers (vcs ops, agent subprocess), so the global is retired only on the hot path, not eliminated.</li>
+<li><strong>Guard is allowlist-gated, migration incomplete.</strong> The enforcement guard ships, but <code>ALLOWLIST</code> carries ~25 paths including a "residual — migrate to GitContext (follow-up)" category (e.g. <code>vcs/branchOperations.ts</code>, <code>triggers/autoMergeHandler.ts</code>), so "no context-free git/gh exists" is not yet fully true.</li>
+<li><strong><code>selfHost</code> discriminator caveat.</strong> <code>buildLaunchGitContext</code> derives <code>selfHost</code> purely from <code>--target-repo</code> <em>presence</em>; a <code>--target-repo</code> pointing at the framework repo itself is treated as target (base path under <code>targetReposDir</code>), documented in-code as intentional but a deviation from a strict "is this our own repo" reading.</li>
+<li>Otherwise matches PRD intent: mandatory identity, single constructor base-path resolution, per-command env injection, cross-check-not-source-of-truth persistence, no backfill migration.</li>
+</ul><nav class="footer-pager"><a href="02-state-and-adw-id.html"><div class="dir">← Previous · 02</div><div class="ttl">State & ADW ID</div></a><a class="next" href="04-agent-execution.html"><div class="dir">Next · 04 →</div><div class="ttl">Agent execution</div></a></nav>
+</main>
+</div>
+</body>
+</html>

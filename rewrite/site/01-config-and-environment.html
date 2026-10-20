@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>01. Config & Environment — ADW Architecture</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar"><div class="brand"><a href="index.html">ADW Architecture</a></div><span class="crumbs">01 / 16 — Config & Environment</span><div class="spacer"></div><div class="pager"><a href="index.html">← Overview</a><a href="02-state-and-adw-id.html">State & ADW ID →</a></div></header>
+<div class="layout">
+<aside class="sidebar"><h3>Overview</h3><ol><li><a class="" href="index.html"><span class="num">◆</span><span>Architecture Index</span></a></li></ol><h3 style="margin-top:1rem">Subsystems</h3><ol><li><a class="current" href="01-config-and-environment.html"><span class="num">01</span><span>Config & Environment</span></a></li><li><a class="" href="02-state-and-adw-id.html"><span class="num">02</span><span>State & ADW ID</span></a></li><li><a class="" href="03-gitcontext.html"><span class="num">03</span><span>GitContext</span></a></li><li><a class="" href="04-agent-execution.html"><span class="num">04</span><span>Agent execution</span></a></li><li><a class="" href="05-phase-runner-and-cost-tracking.html"><span class="num">05</span><span>Phase runner & cost-tracking composition</span></a></li><li><a class="" href="06-provider-abstraction.html"><span class="num">06</span><span>Provider abstraction</span></a></li><li><a class="" href="07-phases-and-orchestrators.html"><span class="num">07</span><span>Phases & orchestrators</span></a></li><li><a class="" href="08-bdd-scenario-subsystem.html"><span class="num">08</span><span>BDD / scenario subsystem</span></a></li><li><a class="" href="09-coordination-kernel.html"><span class="num">09</span><span>Coordination kernel</span></a></li><li><a class="" href="10-triggers.html"><span class="num">10</span><span>Triggers</span></a></li><li><a class="" href="11-automerge-hitl-resilience.html"><span class="num">11</span><span>Auto-merge / HITL + resilience queues</span></a></li><li><a class="" href="12-framework-self-upgrade.html"><span class="num">12</span><span>Framework self-upgrade</span></a></li><li><a class="" href="13-cost-telemetry-and-d1.html"><span class="num">13</span><span>Cost telemetry & D1</span></a></li><li><a class="" href="14-docs-and-living-docs.html"><span class="num">14</span><span>Docs & living-docs</span></a></li><li><a class="" href="15-screenshots.html"><span class="num">15</span><span>Screenshots</span></a></li><li><a class="" href="16-supply-chain.html"><span class="num">16</span><span>Supply-chain</span></a></li></ol></aside>
+<main class="content">
+<section class="hero"><div class="eyebrow">Subsystem 01 of 16</div><h1>Config & Environment</h1><p class="lede">As-is reference. Ground truth: source code.</p></section><figure class="detail-figure"><img src="assets/img/detail_1.png" alt="Detail diagram for Config & Environment"><figcaption>Figure 1 — internal structure &amp; data flow of this subsystem</figcaption></figure><h2>Purpose</h2>
+<p>The substrate every other subsystem reads. Provides three kinds of static configuration: (1) process-environment accessors — secrets, paths, and the resolved Claude CLI executable, loaded once at module import from <code>.env</code>; (2) runtime tuning constants — retry caps, token budgets, timeouts, cron-cycle intervals, and the per-slash-command model/effort routing maps; (3) per-target-repo project config parsed from a repository's <code>.adw/</code> markdown files. All values are read AS-IS by orchestrators, agents, phases, and triggers; this subsystem performs no orchestration of its own.</p>
+<h2>Responsibilities</h2>
+<ul>
+<li>Load <code>.env</code> (via <code>dotenv.config()</code>) at import time and expose typed env-var accessors with defaults.</li>
+<li>Resolve and cache the Claude CLI path (<code>resolveClaudeCodePath</code> → absolute path or <code>which claude</code>).</li>
+<li>Derive repo-root and working-directory path constants; assert trigger scripts run from the repo root.</li>
+<li>Build a secrets allowlist (<code>getSafeSubprocessEnv</code>) for Claude CLI subprocesses.</li>
+<li>Hold model-tier and reasoning-effort maps keyed by slash command, with a normal and a <code>/fast</code>-<code>/cheap</code> variant, plus selector helpers.</li>
+<li>Hold retry/token/concurrency/heartbeat/pause-queue constants (most overridable via env vars).</li>
+<li>Compute per-phase agent watchdog timeouts (<code>getAgentTimeoutForPhase</code>).</li>
+<li>Load and parse a target repo's <code>.adw/</code> markdown into a typed <code>ProjectConfig</code>, with defaults when files are absent.</li>
+</ul>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/environment.ts</code></td>
+<td><code>.env</code> load, Claude CLI path resolution + cache, provider secret accessors, path constants (<code>REPO_ROOT</code>, <code>LOGS_DIR</code>, <code>SPECS_DIR</code>, <code>AGENTS_STATE_DIR</code>, <code>WORKTREES_DIR</code>, <code>TARGET_REPOS_DIR</code>), <code>assertCwdIsRepoRoot</code>, <code>SAFE_ENV_VARS</code> allowlist + <code>getSafeSubprocessEnv</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/config.ts</code></td>
+<td>Retry/token/concurrency/heartbeat/pause constants (env-overridable); <code>AGENT_DEFAULT_TIMEOUT_MS</code>; re-exports environment + modelRouting symbols for backward compatibility.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/modelRouting.ts</code></td>
+<td><code>ModelTier</code> / <code>ReasoningEffort</code> types; <code>SLASH_COMMAND_MODEL_MAP(_FAST)</code>, <code>SLASH_COMMAND_EFFORT_MAP(_FAST)</code>; <code>isFastMode</code>, <code>getModelForCommand</code>, <code>getEffortForCommand</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/agentTimeouts.ts</code></td>
+<td><code>AGENT_PHASE_TIMEOUT_MAP</code>, <code>getAgentTimeoutForPhase</code> (env <code>AGENT_PHASE_TIMEOUT_&lt;PHASE&gt;</code> → static map → default).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/projectConfig.ts</code></td>
+<td><code>ProjectConfig</code> types + defaults; markdown-section parser; <code>parseCommandsMd</code>/<code>parseProvidersMd</code>/<code>parseScenariosMd</code>/<code>parseReviewProofMd</code>/<code>parseUnitTestsEnabled</code>/<code>parseApplicationType</code>; <code>loadProjectConfig</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/constants.ts</code></td>
+<td><code>OrchestratorId</code> map, <code>MAX_AUTO_MERGE_ATTEMPTS</code> (string-literal constants, not env-driven).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>adws/core/index.ts</code></td>
+<td>Barrel re-exporting all of the above.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><code>.adw/commands.md</code>, <code>project.md</code>, <code>providers.md</code>, <code>scenarios.md</code>, <code>review_proof.md</code>, <code>conditional_docs.md</code></td>
+<td>Per-repo config inputs parsed by <code>loadProjectConfig</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2>Behavior &amp; Flows</h2>
+<ul>
+<li><strong>Import-time env load.</strong> <code>environment.ts</code> runs <code>dotenv.config()</code> on import; constants are evaluated once. <code>LOGS_DIR</code>/<code>SPECS_DIR</code>/<code>AGENTS_STATE_DIR</code>/<code>WORKTREES_DIR</code> are derived from <code>process.cwd()</code>; <code>REPO_ROOT</code> is derived from the file's own location (<code>import.meta.url</code>, independent of cwd). <code>assertCwdIsRepoRoot()</code> exits(1) with a stderr message when cwd ≠ <code>REPO_ROOT</code>; triggers call it at entry.</li>
+<li><strong>Claude CLI resolution.</strong> <code>resolveClaudeCodePath()</code> returns the cached path; otherwise uses <code>CLAUDE_CODE_PATH</code> if absolute and existing, else <code>execSync('which claude')</code>, else throws. <code>clearClaudeCodePathCache()</code> forces re-resolution (used by <code>claudeAgent.ts</code> after ENOENT).</li>
+<li><strong>Subprocess sanitization.</strong> <code>getSafeSubprocessEnv()</code> copies only the <code>SAFE_ENV_VARS</code> allowlist from <code>process.env</code>, deliberately excluding e.g. <code>GITHUB_PERSONAL_ACCESS_TOKEN</code> (only canonical <code>GITHUB_PAT</code> passes).</li>
+<li><strong>Model/effort selection.</strong> <code>isFastMode(issueBody)</code> matches <code>/fast</code> or <code>/cheap</code> (word-boundary, case-insensitive). <code>getModelForCommand</code>/<code>getEffortForCommand</code> pick the <code>_FAST</code> map when fast mode is on. Effort <code>undefined</code> ⇒ no <code>--effort</code> flag (e.g. haiku commands). <code>claudeAgent.ts</code> emits <code>--model &lt;tier&gt;</code> and conditionally <code>--effort &lt;level&gt;</code>.</li>
+<li><strong>Per-phase timeout.</strong> <code>getAgentTimeoutForPhase(phase)</code>: env <code>AGENT_PHASE_TIMEOUT_&lt;UPPER&gt;</code> → <code>AGENT_PHASE_TIMEOUT_MAP[phase]</code> → <code>AGENT_DEFAULT_TIMEOUT_MS</code> (30 min default).</li>
+<li><strong>Project config load.</strong> <code>loadProjectConfig(targetRepoPath)</code>: if <code>&lt;repo&gt;/.adw/</code> is missing/not-a-dir, returns <code>getDefaultProjectConfig()</code>. Otherwise each file is read independently in a try/catch; a missing/unreadable file falls back to its per-file default (never throws). Markdown is parsed by <code>parseMarkdownSections</code> (<code>## Heading</code> → lowercased key → trimmed body). <code>commands.md</code>/<code>scenarios.md</code>/<code>providers.md</code> map known headings onto config keys; <code>review_proof.md</code> parses <code>## Tags</code> and <code>## Supplementary Checks</code> markdown tables; <code>project.md</code> yields <code>applicationType</code> (<code>web</code> else <code>cli</code>) and <code>parseUnitTestsEnabled</code> (supports both <code>## Unit Tests: enabled</code> inline and body form); <code>conditional_docs.md</code> is parsed by <code>parseConditionalDocs</code> (<a class="xref" href="14-docs-and-living-docs.html" title="<a class="xref" href="14-docs-and-living-docs.html" title="14. Docs & living-docs">14. </a>Docs & living-docs">subsystem 14</a>).</li>
+</ul>
+<h2>Data Structures</h2>
+<ul>
+<li><code>ProjectConfig { commands: CommandsConfig; projectMd; conditionalDocsMd; conditionalDocs: ConditionalDocsRegistry; reviewProofMd; hasAdwDir; providers: ProvidersConfig; scenarios: ScenariosConfig; scenariosMd; reviewProofConfig: ReviewProofConfig; applicationType: 'cli'|'web' }</code>.</li>
+<li><code>CommandsConfig</code> (15 fields incl. <code>packageManager</code>, <code>installDeps</code>, <code>runLinter</code>, <code>typeCheck</code>, <code>runTests</code>, <code>runBuild</code>, <code>startDevServer</code>, <code>healthCheckPath</code>, <code>libraryInstall</code>, <code>scriptExecution</code>, <code>runScenariosByTag</code>, <code>runRegressionScenarios</code>, <code>testDirectory</code>, <code>testFramework</code>).</li>
+<li><code>ScenariosConfig</code> (<code>scenarioDirectory</code>, <code>runByTag</code>, <code>runRegression</code>, optional <code>perIssueScenarioDirectory</code>/<code>regressionScenarioDirectory</code>/<code>vocabularyRegistry</code>, <code>stepDefDirectory</code>, <code>bddFramework</code>).</li>
+<li><code>ProvidersConfig</code> (<code>codeHost</code>, optional <code>codeHostUrl</code>; <code>issueTracker</code>, optional <code>issueTrackerUrl</code>/<code>issueTrackerProjectKey</code>; platform names lowercased, URLs case-preserved).</li>
+<li><code>ReviewProofConfig { tags: ReviewTagEntry[]; supplementaryChecks: SupplementaryCheck[] }</code>.</li>
+<li><code>ModelTier = 'opus'|'sonnet'|'haiku'</code>; <code>ReasoningEffort = 'low'|'medium'|'high'|'xhigh'|'max'</code>; slash-command-keyed <code>Record</code> maps.</li>
+</ul>
+<h2>Public Interface</h2>
+<ul>
+<li>Env/paths: <code>REPO_ROOT</code>, <code>LOGS_DIR</code>, <code>SPECS_DIR</code>, <code>AGENTS_STATE_DIR</code>, <code>WORKTREES_DIR</code>, <code>TARGET_REPOS_DIR</code>, <code>assertCwdIsRepoRoot()</code>.</li>
+<li>Secrets: <code>GITHUB_PAT</code>, <code>JIRA_*</code>, <code>GITLAB_*</code>, <code>CLOUDFLARE_ACCOUNT_ID</code>, <code>R2_*</code>, <code>COST_API_URL</code>, <code>COST_API_TOKEN</code>.</li>
+<li>Claude CLI: <code>CLAUDE_CODE_PATH</code>, <code>resolveClaudeCodePath()</code>, <code>clearClaudeCodePathCache()</code>, <code>getSafeSubprocessEnv()</code>.</li>
+<li>Routing: <code>getModelForCommand()</code>, <code>getEffortForCommand()</code>, <code>isFastMode()</code>, the four maps, <code>getAgentTimeoutForPhase()</code>.</li>
+<li>Tuning constants: <code>MAX_TEST_RETRY_ATTEMPTS</code>, <code>MAX_REVIEW_RETRY_ATTEMPTS</code>, <code>MAX_VALIDATION_RETRY_ATTEMPTS</code>, <code>MAX_FAILURES</code>, <code>MAX_THINKING_TOKENS</code>, <code>TOKEN_LIMIT_THRESHOLD</code>, <code>MAX_CONTEXT_RESETS</code>, <code>MAX_PROGRESS_CHECKPOINTS</code>, <code>MAX_CONCURRENT_PER_REPO</code>, <code>GRACE_PERIOD_MS</code>, <code>HEARTBEAT_*</code>, <code>*_INTERVAL_CYCLES</code>, <code>COST_REPORT_CURRENCIES</code>, <code>RUNNING_TOKENS</code>, <code>SHOW_COST_IN_COMMENTS</code>, <code>AGENT_DEFAULT_TIMEOUT_MS</code>.</li>
+<li>Project config: <code>loadProjectConfig()</code>, <code>getDefault*Config()</code>, <code>parseCommandsMd/ProvidersMd/ScenariosMd/ReviewProofMd</code>, <code>parseMarkdownSections</code>, <code>parseUnitTestsEnabled</code>, <code>parseApplicationType</code>.</li>
+<li>Constants: <code>OrchestratorId</code>, <code>MAX_AUTO_MERGE_ATTEMPTS</code>.</li>
+</ul>
+<h2>Dependencies</h2>
+<ul>
+<li>Upstream (depends on):</li>
+<li>Node stdlib: <code>child_process</code> (execSync), <code>fs</code>, <code>os</code>, <code>path</code>, <code>url</code>; npm <code>dotenv</code>.</li>
+<li><code>.env</code> file and <code>process.env</code>; the target repo's <code>.adw/</code> directory on disk.</li>
+<li><code>conditionalDocsRegistry.parseConditionalDocs</code> (<a class="xref" href="14-docs-and-living-docs.html" title="<a class="xref" href="14-docs-and-living-docs.html" title="14. Docs & living-docs">14. </a>Docs & living-docs">subsystem 14</a>) for <code>ProjectConfig.conditionalDocs</code>.</li>
+<li><code>types/issueTypes.SlashCommand</code> (the keyspace of the routing maps).</li>
+<li>Downstream (depended on by): essentially every subsystem — Agent execution, Phase runner, Providers, Phases/orchestrators, BDD, Coordination kernel, Triggers, Cost telemetry, Docs, Screenshots, Supply-chain.</li>
+</ul>
+<h2>Interactions</h2>
+<table>
+<thead>
+<tr>
+<th>Other subsystem</th>
+<th>Direction</th>
+<th>What is exchanged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="04-agent-execution.html" title="04. Agent execution">4. </a>Agent execution</td>
+<td>called-by</td>
+<td><code>resolveClaudeCodePath</code>, <code>getSafeSubprocessEnv</code>, <code>getModelForCommand</code>/<code>getEffortForCommand</code> → <code>--model</code>/<code>--effort</code>; <code>getAgentTimeoutForPhase</code> watchdog (<code>claudeAgent.ts</code>, <code>commandAgent.ts</code>).</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="07-phases-and-orchestrators.html" title="07. Phases & orchestrators">7. </a>Phases &amp; orchestrators</td>
+<td>called-by</td>
+<td><code>loadProjectConfig</code> → <code>ProjectConfig</code>; path constants; retry caps; <code>OrchestratorId</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="06-provider-abstraction.html" title="06. Provider abstraction">6. </a>Provider abstraction</td>
+<td>called-by</td>
+<td><code>ProvidersConfig</code> + <code>JIRA_*</code>/<code>GITLAB_*</code>/<code>GITHUB_PAT</code> secrets select/configure backends.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="08-bdd-scenario-subsystem.html" title="08. BDD / scenario subsystem">8. </a>BDD / scenario subsystem</td>
+<td>called-by</td>
+<td><code>ScenariosConfig</code>, <code>CommandsConfig.runScenariosByTag/runRegressionScenarios/testFramework/testDirectory</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="09-coordination-kernel.html" title="09. Coordination kernel">9. </a>Coordination kernel</td>
+<td>called-by</td>
+<td>heartbeat/cron-cycle/concurrency constants, <code>GRACE_PERIOD_MS</code>, <code>MAX_CONCURRENT_PER_REPO</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="10-triggers.html" title="10. Triggers">10. </a>Triggers</td>
+<td>called-by</td>
+<td><code>assertCwdIsRepoRoot</code>, <code>*_INTERVAL_CYCLES</code>, pause-queue constants.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="13-cost-telemetry-and-d1.html" title="13. Cost telemetry & D1">13. </a>Cost telemetry &amp; D1</td>
+<td>called-by</td>
+<td><code>COST_API_URL</code>/<code>COST_API_TOKEN</code>, <code>COST_REPORT_CURRENCIES</code>, <code>RUNNING_TOKENS</code>, <code>SHOW_COST_IN_COMMENTS</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="14-docs-and-living-docs.html" title="14. Docs & living-docs">14. </a>Docs &amp; living-docs</td>
+<td>bidirectional</td>
+<td>supplies <code>conditionalDocsMd</code> raw + <code>reviewProofConfig</code>; consumes <code>parseConditionalDocs</code>.</td>
+</tr>
+<tr>
+<td>---</td>
+<td>---</td>
+<td>---</td>
+</tr>
+<tr>
+<td><a class="xref" href="15-screenshots.html" title="15. Screenshots">15. </a>Screenshots</td>
+<td>called-by</td>
+<td><code>CLOUDFLARE_ACCOUNT_ID</code>, <code>R2_ACCESS_KEY_ID</code>, <code>R2_SECRET_ACCESS_KEY</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2>PRD Divergences</h2>
+<p>PRD <code>specs/prd/multi-language-test-and-bdd-support.md</code> matches the AS-IS code: <code>CommandsConfig</code> carries <code>testFramework</code>/<code>testDirectory</code> and <code>ScenariosConfig</code> carries <code>bddFramework</code>/<code>stepDefDirectory</code> with the documented defaults, and the parsers/defaults are present. No divergences observed; the legacy hardcoded-<code>src/</code> gate the PRD proposes dropping is not enforced inside this subsystem (it lives in the test/BDD subsystem).</p><nav class="footer-pager"><a href="index.html"><div class="dir">← Back</div><div class="ttl">Architecture overview</div></a><a class="next" href="02-state-and-adw-id.html"><div class="dir">Next · 02 →</div><div class="ttl">State & ADW ID</div></a></nav>
+</main>
+</div>
+</body>
+</html>

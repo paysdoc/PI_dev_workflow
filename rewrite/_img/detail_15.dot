@@ -1,0 +1,15 @@
+digraph G {
+  rankdir=LR; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, width=1.5, height=0.6, margin="0.08,0.05"];
+  edge [fontname="Helvetica", fontsize=8, color="#999999", fontcolor="#555555", arrowsize=0.6];
+  graph [ranksep=1.6, nodesep=0.18];
+  15 [label="15. Screenshots", fillcolor="#7a5230", fontcolor="white", color="#111111", penwidth=3];
+
+  3 [label="3. GitContext", fillcolor="#2f6b6bbb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  8 [label="8. BDD / scenario\nsubsystem", fillcolor="#7a5230bb", fontcolor="white", color="#cccccc", penwidth=1];
+
+  15 -> 8 [label="harvest proof images", color="#7a2f4a", penwidth=1.4];
+  15 -> 3 [label="repo id, PR number", color="#7a2f4a", penwidth=1.4];
+  8 -> 15 [label="ADW_PROOF_DIR artifacts", color="#2f6b6b", penwidth=1.4, style=dashed];
+}

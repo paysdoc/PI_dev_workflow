@@ -68,8 +68,10 @@ You may be restarting an earlier run. Before the first slice, read `git log`, `g
 
 ## Output
 
-Your last message must be ONLY raw JSON, with no code fences and no text before or after it:
+Finish by calling the `report_implementation` tool exactly once, after the last commit. Its schema defines the report. Do not write the report as text.
 
-{"tdd": true, "slices": [{"planTask": "<task or null>", "finding": "<finding detail or null>", "scenario": "<scenario name or null>", "unitTest": "red-green | passed-before-implementation | blocked | skipped", "reason": "<reason or null>"}]}
+- `slices`: one entry per slice, plan tasks first in plan order, then findings in the order given. Each slice sets exactly one of `planTask` and `finding`; the other is `null`.
+- `reason`: required for a `blocked` slice. Otherwise `"no upstream DSL"` or `null`.
+- On a misalignment, set `failed` and list only the slices done so far.
 
-On a misalignment, add `"failed": {"scenario": "<name>", "planTask": "<task or null>", "conflict": "<what contradicts>"}` and list only the slices done so far.
+If the tool rejects the report, fix what the error names and call it again.

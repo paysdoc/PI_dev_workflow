@@ -61,5 +61,10 @@ The skill does unit-level TDD only. It treats the scenario directory as read-onl
 
 ### Findings input and JSON repair
 - **Findings.** implement-tdd takes an optional labelled `findings` list (`source`, `file?`, `detail`) from the WorkflowNode validator. Each finding becomes an extra slice after the plan slices, and findings never override the skill's Rules. Free-form prompt input was rejected because it invites scope creep.
-- **JSON format errors are not a skill input.** A hook or WorkflowNode replies in the *same* session with `pi.sendUserMessage()` (Pi `docs/extensions.md:179`), e.g. "Your last message was not valid JSON. Resend only the JSON."
+- **Report via tool, not raw JSON (decided).** `.pi/extensions/implement-tdd-report.ts` registers `report_implementation`, whose TypeBox schema is the single source of truth for the report (exported as `ImplementationReport`).
+  - Pi validates the arguments against the schema and returns errors to the model as a failed tool call, so the model retries in the same session. `execute()` rejects what the schema cannot express: exactly one of `planTask`/`finding`, `reason` on `blocked`, `skipped` iff `tdd: false` (or a non-behaviour finding).
+  - `constrainedSampling: { type: "json_schema", strict: "prefer" }` turns on provider-side strict tools where available; keep the schema strict-compatible (no `oneOf`/`allOf`, no object unions, no `minLength`).
+  - Scope: registered with `defaultActive: false`. It becomes active only when a run's prompt is the expanded `/skill:implement-tdd` block (`<skill name="implement-tdd"`), and is restored on resume from the session branch. No other session sees it.
+  - The accepted report is in the tool result's `details` / `structuredContent`; the call returns `terminate: true`. The orchestrator reads it from there, not from the last message.
+  - If a run ends without an accepted report, `agent_before_settle` sends a reminder and continues, at most twice. This replaces the planned `sendUserMessage()` JSON repair.
 - **Open:** the retry budget, i.e. how many times the validator may re-invoke implement-tdd with findings. See the "one retry" proposal under plan-issue.

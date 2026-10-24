@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    ".pi/extensions/skill-path-guard.ts",
+    ".pi/extensions/implement-tdd-report.ts",
+    ".pi/extensions/write-scenarios-report.ts",
+    ".pi/extensions/utils/skillSession.ts",
+    ".pi/extensions/utils/skillReport.ts",
+    ".pi/extensions/utils/skillPolicies.ts",
+    ".pi/extensions/utils/pathPolicy.ts",
+    ".pi/extensions/utils/gitCommandPolicy.ts",
+    ".pi/extensions/__tests__/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

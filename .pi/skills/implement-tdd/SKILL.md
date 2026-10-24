@@ -14,7 +14,7 @@ The request contains labelled values. Use them by label, never by position.
 
 - `issueNumber`: numeric issue number
 - `planPath`: path to the plan file
-- `scenarioFiles` (optional): the `.feature` files for this issue. If absent, find every `.feature` file under the scenario directory tagged `@adw-{issueNumber}`.
+- `scenarios` (optional): the scenarios this issue must satisfy, each with `file` and `scenario` (its name). Only the named scenarios are your spec, not the rest of their files. If absent, the spec is every scenario in the `.feature` files under the scenario directory tagged `@adw-{issueNumber}`.
 - `findings` (optional): a list of items, each with `source`, an optional `file`, and `detail`. They come from a validator that checked an earlier run. See **Findings**.
 
 ## Read first
@@ -24,13 +24,13 @@ The request contains labelled values. Use them by label, never by position.
 3. `.adw/coding_guidelines.md`: your code and tests must comply.
 4. `.adw/scenarios.md`: `## Scenario Directory` (default `features/`). This is the scenario directory.
 5. `.github/adw.yml`: unit tests are off only when an uncommented line sets `unitTests: false`. They are on if the file or the key is missing.
-6. The scenario files, plus the step definitions, DSL and drivers behind them, if any.
+6. The scenarios, plus the step definitions, DSL and drivers behind them, if any.
 
 You may read only the files above, any file the plan or a finding names, and the files you create.
 
 ## Rules
 
-- Everything under the scenario directory is read-only: `.feature` files, step definitions, DSL and drivers. Never add, edit or delete anything there, and never run scenarios.
+- Never run scenarios, and never change anything under the scenario directory through bash.
 - Scenarios define *what* to build. The plan defines *where* and *how*. If a scenario has no step definitions or DSL behind it, its Gherkin text together with the plan is the spec, and its slice gets `reason: "no upstream DSL"`.
 - **Misalignment is a hard fail.** Stop at once if the plan and a scenario specify contradictory behaviour, or if no plan task implements a scenario. Write no more code and report `failed`.
 - Run only the unit tests you write. Do not run the full suite, the type checker or the linter.

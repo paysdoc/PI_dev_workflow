@@ -29,9 +29,9 @@ Labelled values in the request. Use them by label, never by position.
 
 ## Rules
 
-- Research is read-only: read files, use `grep`/`ls`, and `git log/show/diff/blame`. Run nothing else.
+- A guard limits what you can read, write and run. A blocked call's reason says what is allowed.
 - Write exactly one file: `specs/issue-{issueNumber}-adw-{adwId}-sdlc_planner-{slug}.md`, where `{slug}` is a short kebab-case name for the issue.
-- Write the plan as soon as your research fills every section, then stop. Ignore files that appear under `features/` while you work.
+- Write the plan as soon as your research fills every section, then stop.
 
 ## Writing the plan
 

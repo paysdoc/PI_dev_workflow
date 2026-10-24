@@ -7,29 +7,38 @@ features/
 NODE_OPTIONS="--import tsx" bunx cucumber-js --tags "@{tag}"
 
 ## Run Regression Scenarios
-NODE_OPTIONS="--import tsx" bunx cucumber-js --tags "@regression"
+NODE_OPTIONS="--import tsx" bunx cucumber-js --profile regression
+
+<!-- Regression scenarios carry no tags: the `regression` profile in cucumber.json selects
+     them by path. A path on the command line does not do this, because cucumber-js adds it
+     to the profile's `paths` instead of replacing them. -->
 
 <!-- The three optional sections below activate the regression-suite contract for repos that
-     opt in. Target repos that omit them keep current free-form behaviour: scenario_writer
-     places files wherever it likes, and auto-promotes @regression freely. When all three
-     are present, scenario_writer routes per-issue output to Per-Issue Scenario Directory,
-     never auto-promotes (human decision only), and generate_step_definitions validates
-     every step phrase against the Vocabulary Registry. -->
+     opt in. Target repos that omit them keep free-form behaviour: every scenario counts as
+     per-issue and the vocabulary rule does not apply. When they are present, write-scenarios
+     routes new scenarios to Per-Issue Scenario Directory, never promotes, and lets an edited
+     regression scenario use only phrases registered in the Vocabulary Registry. -->
 
 ## Per-Issue Scenario Directory
-<!-- Consumed by scenario_writer. Absent → falls back to ## Scenario Directory. -->
+<!-- Consumed by write-scenarios. Absent → falls back to ## Scenario Directory. -->
 features/per-issue/
 
 ## Regression Scenario Directory
-<!-- Consumed by scenario_writer. When set, the @regression sweep step is skipped. -->
+<!-- Consumed by write-scenarios. Regression files carry no tags and are never auto-promoted. -->
 features/regression/
 
 ## Vocabulary Registry
-<!-- Consumed by generate_step_definitions. When set, step phrases must be registered. -->
+<!-- Consumed by write-scenarios. Edited regression scenarios may use only registered phrases. -->
 features/regression/vocabulary.md
 
 ## BDD Framework
 cucumber-js
 
 ## Step Def Directory
-features/step_definitions
+features/steps
+
+## DSL Directory
+features/support/dsl/
+
+## Driver Directory
+features/support/drivers/

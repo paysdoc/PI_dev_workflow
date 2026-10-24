@@ -1,8 +1,34 @@
 {
   "default": {
-    "import": ["features/support/**/*.ts", "features/steps/**/*.ts"],
-    "paths": ["features/**/*.feature"],
-    "format": ["progress-bar", "summary"],
-    "formatOptions": { "snippetInterface": "async-await" }
+    "import": [
+      "features/support/**/*.ts",
+      "features/steps/**/*.ts"
+    ],
+    "paths": [
+      "features/**/*.feature"
+    ],
+    "format": [
+      "progress-bar",
+      "summary"
+    ],
+    "formatOptions": {
+      "snippetInterface": "async-await"
+    }
+  },
+  "regression": {
+    "import": [
+      "features/support/**/*.ts",
+      "features/steps/**/*.ts"
+    ],
+    "paths": [
+      "features/regression/**/*.feature"
+    ],
+    "format": [
+      "progress-bar",
+      "summary"
+    ],
+    "formatOptions": {
+      "snippetInterface": "async-await"
+    }
   }
 }

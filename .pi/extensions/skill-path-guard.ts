@@ -10,8 +10,8 @@
  * prompt replaces it. On resume, the last skill prompt on the branch decides.
  *
  * The skill's own directory stays readable, so it can load its supporting files.
- * Listings (`ls`, `find`) of a parent of a denied root are allowed, and their
- * results lose the entries inside the denied root.
+ * Listings and searches (`ls`, `find`, `grep`) of a parent of a denied root
+ * are allowed, and their results lose what lies inside the denied root.
  */
 
 import * as path from "node:path";
@@ -23,7 +23,14 @@ import type {
 	ToolResultEvent,
 	ToolResultEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { evaluateToolCall, filterToolResult, SEARCH_TOOLS, SKILL_POLICIES, type SkillPolicy } from "./utils/skillPolicies";
+import {
+	evaluateToolCall,
+	filterToolResult,
+	normalizeSearchInput,
+	SEARCH_TOOLS,
+	SKILL_POLICIES,
+	type SkillPolicy,
+} from "./utils/skillPolicies";
 import { lastSkillPrompt, parseSkillPrompt, type SkillPrompt } from "./utils/skillSession";
 
 interface ActiveSkill {
@@ -72,6 +79,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", (event: ToolCallEvent, ctx: ExtensionContext): ToolCallEventResult | undefined => {
 		if (active === undefined) return undefined;
 		const input = event.input as Record<string, unknown>;
+		normalizeSearchInput(event.toolName, input);
 		const readableDirs = active.skillDir === undefined ? [] : [active.skillDir];
 		const verdict = evaluateToolCall(active.policy, event.toolName, input, { cwd: ctx.cwd, readableDirs });
 		if (!verdict.ok) {

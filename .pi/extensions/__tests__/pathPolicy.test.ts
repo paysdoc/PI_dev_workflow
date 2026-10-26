@@ -9,6 +9,7 @@ import {
 	checkWrite,
 	containsRoot,
 	hideDeniedEntries,
+	hideDeniedMatches,
 	withinRoot,
 } from "../utils/pathPolicy";
 import { makeWorktree } from "./fakePi";
@@ -87,8 +88,12 @@ describe("checkRead", () => {
 });
 
 describe("checkSearch", () => {
-	it("blocks a search whose root contains a denied root", () => {
-		expect(checkSearch(".", { deny: ["features/"] }, { cwd }).ok).toBe(false);
+	it("allows a search whose root contains a denied root, whose matches the result filter hides", () => {
+		expect(checkSearch(".", { deny: ["features/"] }, { cwd }).ok).toBe(true);
+	});
+
+	it("blocks a search inside a denied root", () => {
+		expect(checkSearch("features", { deny: ["features/"] }, { cwd }).ok).toBe(false);
 	});
 
 	it("allows a search of a sibling directory", () => {
@@ -153,5 +158,32 @@ describe("hideDeniedEntries", () => {
 	it("leaves a result with nothing denied unchanged", () => {
 		expect(hideDeniedEntries("prd-a.md", "specs/prd", rules, { cwd })).toBe("prd-a.md");
 		expect(hideDeniedEntries("issue-7.md", "specs", {}, { cwd })).toBe("issue-7.md");
+	});
+});
+
+describe("hideDeniedMatches", () => {
+	it("removes match and context lines from files in a denied directory, keeping pi's notices last", () => {
+		const output = [
+			"features/x.feature:3: Given a deck",
+			"features/x.feature-4- When it renders",
+			"features_notes.md:1: deck",
+			"src/app.ts:9: deck()",
+			"",
+			"[100 matches limit reached]",
+		].join("\n");
+		expect(hideDeniedMatches(output, ".", { deny: ["features/"] }, { cwd })).toBe(
+			"features_notes.md:1: deck\nsrc/app.ts:9: deck()\n\n[2 matching lines hidden: features/ is off limits]\n\n[100 matches limit reached]",
+		);
+	});
+
+	it("strips the search root from the prefix, for prefix roots too", () => {
+		const output = "issue-7-adw-x.md:1: plan\nprd/prd-a.md:2: prd";
+		expect(hideDeniedMatches(output, "specs", { deny: ["specs/issue-*"] }, { cwd })).toBe(
+			"prd/prd-a.md:2: prd\n\n[1 matching lines hidden: specs/issue-* is off limits]",
+		);
+	});
+
+	it("leaves a search beside the denied roots unchanged", () => {
+		expect(hideDeniedMatches("app.ts:9: features/x", "src", { deny: ["features/"] }, { cwd })).toBe("app.ts:9: features/x");
 	});
 });

@@ -126,18 +126,12 @@ export function checkRead(input: string, rules: PathRules, context: PathContext)
 }
 
 /**
- * A directory whose files' contents the tool returns (`grep`). Besides the
- * read rules, the search root must not contain a denied root, or the search
- * would read inside it.
+ * A directory whose files' contents the tool returns (`grep`). A search of a
+ * parent of a denied root is allowed: `hideDeniedMatches` removes the matches
+ * inside the denied root from the result.
  */
 export function checkSearch(input: string, rules: PathRules, context: PathContext): Verdict {
-	const located = locate(input, context);
-	if ("verdict" in located) return located.verdict;
-	const verdict = checkRules(input, located.relative, rules, "Searching");
-	if (!verdict.ok) return verdict;
-	const enclosed = rules.deny?.find((root) => containsRoot(located.relative, root));
-	if (enclosed === undefined) return OK;
-	return blocked(`Searching "${input}" would search ${enclosed}, which is off limits. Search a narrower path.`);
+	return checkPath(input, rules, context, "Searching");
 }
 
 /**
@@ -150,11 +144,23 @@ export function checkList(input: string, rules: PathRules, context: PathContext)
 	return checkRules(input, located.relative, { deny: rules.deny }, "Listing");
 }
 
-// pi's `ls` and `find` end their output with notices such as "[100 results limit reached]".
+// pi's `ls`, `find` and `grep` end their output with notices such as "[100 results limit reached]".
 const NOTICE_SEPARATOR = "\n\n[";
 
+/** Drops the result lines `isHidden` selects, keeping pi's notices last and saying how many it hid. */
+function hideLines(output: string, isHidden: (line: string) => boolean, deny: Roots, what: string): string {
+	const noticeAt = output.indexOf(NOTICE_SEPARATOR);
+	const body = noticeAt < 0 ? output : output.slice(0, noticeAt);
+	const notices = noticeAt < 0 ? "" : output.slice(noticeAt);
+	const lines = body.split("\n");
+	const kept = lines.filter((line) => line === "" || !isHidden(line));
+	const hidden = lines.length - kept.length;
+	if (hidden === 0) return output;
+	const shown = kept.length > 0 ? kept.join("\n") : `(no ${what} outside the off-limits roots)`;
+	return `${shown}\n\n[${hidden} ${what} hidden: ${describe(deny)} is off limits]${notices}`;
+}
+
 function isDeniedEntry(line: string, base: string, deny: Roots, cwd: string): boolean {
-	if (line === "") return false;
 	const relative = worktreeRelative(path.join(base, line.replace(/\/$/, "")), cwd);
 	return relative !== undefined && deny.some((root) => withinRoot(relative, root));
 }
@@ -168,15 +174,31 @@ export function hideDeniedEntries(output: string, listed: string, rules: PathRul
 	const deny = rules.deny ?? [];
 	const base = resolvePath(listed, context.cwd);
 	if (deny.length === 0 || base === undefined) return output;
-	const noticeAt = output.indexOf(NOTICE_SEPARATOR);
-	const body = noticeAt < 0 ? output : output.slice(0, noticeAt);
-	const notices = noticeAt < 0 ? "" : output.slice(noticeAt);
-	const lines = body.split("\n");
-	const kept = lines.filter((line) => !isDeniedEntry(line, base, deny, context.cwd));
-	const hidden = lines.length - kept.length;
-	if (hidden === 0) return output;
-	const shown = kept.length > 0 ? kept.join("\n") : "(no entries outside the off-limits roots)";
-	return `${shown}\n\n[${hidden} entries hidden: ${describe(deny)} is off limits]${notices}`;
+	return hideLines(output, (line) => isDeniedEntry(line, base, deny, context.cwd), deny, "entries");
+}
+
+/** How a result line relative to `base` starts when it is inside `root`, or undefined when `root` is not below `base`. */
+function linePrefixes(base: string, root: string): readonly string[] | undefined {
+	if (base !== "" && !root.startsWith(`${base}/`)) return undefined;
+	const below = base === "" ? root : root.slice(base.length + 1);
+	if (below.endsWith("*")) return [below.slice(0, -1)];
+	if (below.endsWith("/")) return [below];
+	return [`${below}:`, `${below}-`];
+}
+
+/**
+ * Removes the lines from files inside denied roots from a `grep` result. pi
+ * prints every match and context line as `<path>:<n>: ` or `<path>-<n>- `, with
+ * the path relative to the search root, so a path prefix identifies them.
+ */
+export function hideDeniedMatches(output: string, searched: string, rules: PathRules, context: PathContext): string {
+	const deny = rules.deny ?? [];
+	const base = resolvePath(searched, context.cwd);
+	const relative = base === undefined ? undefined : worktreeRelative(base, context.cwd);
+	if (deny.length === 0 || relative === undefined) return output;
+	const prefixes = deny.flatMap((root) => linePrefixes(relative, root) ?? []);
+	if (prefixes.length === 0) return output;
+	return hideLines(output, (line) => prefixes.some((prefix) => line.startsWith(prefix)), deny, "matching lines");
 }
 
 /** A file the tool creates or changes (`write`, `edit`). */

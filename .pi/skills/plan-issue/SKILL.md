@@ -31,6 +31,7 @@ Labelled values in the request. Use them by label, never by position.
 
 - A guard limits what you can read, write and run. A blocked call's reason says what is allowed.
 - Write exactly one file: `specs/issue-{issueNumber}-adw-{adwId}-sdlc_planner-{slug}.md`, where `{slug}` is a short kebab-case name for the issue.
+- Leave BDD to the scenario writer. While you plan, another skill writes this issue's scenarios, step definitions and drivers under `features/`, and the implementer makes them pass. Plan no task that creates or changes anything under `features/`. Test-writing tasks are unit tests.
 - Write the plan as soon as your research fills every section, then stop.
 
 ## Writing the plan

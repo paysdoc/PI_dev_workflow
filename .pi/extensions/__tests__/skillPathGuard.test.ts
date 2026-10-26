@@ -37,13 +37,14 @@ const allowed = (skill: string, tool: string, input: Record<string, unknown>) =>
 describe("plan-issue policy", () => {
 	it("blocks reads, searches and git reads of the scenario tree", () => {
 		expect(allowed("plan-issue", "read", { path: "features/per-issue/feature-1.feature" })).toBe(false);
-		expect(allowed("plan-issue", "grep", { pattern: "x" })).toBe(false);
+		expect(allowed("plan-issue", "grep", { pattern: "x", path: "features" })).toBe(false);
 		expect(allowed("plan-issue", "bash", { command: "git blame features/per-issue/feature-1.feature" })).toBe(false);
 	});
 
 	it("allows reading source and writing only under specs/", () => {
 		expect(allowed("plan-issue", "read", { path: "src/app.ts" })).toBe(true);
 		expect(allowed("plan-issue", "grep", { pattern: "x", path: "src" })).toBe(true);
+		expect(allowed("plan-issue", "grep", { pattern: "x" })).toBe(true);
 		expect(allowed("plan-issue", "write", { path: "specs/issue-1-plan.md" })).toBe(true);
 		expect(allowed("plan-issue", "edit", { path: "src/app.ts" })).toBe(false);
 	});
@@ -164,6 +165,24 @@ describe("guard extension", () => {
 			content: [{ text: expect.stringMatching(/^README\.md\nsrc\/\n\n\[1 entries hidden/) }],
 		});
 		expect(result(fake, "read", { path: "src/app.ts" }, "features/x")).toBeUndefined();
+	});
+
+	it("hides the scenario tree's matching lines from plan-issue's grep over the worktree", () => {
+		const fake = start(skillPrompt("plan-issue"));
+		const matches = "features/x.feature:3: Given a deck\nfeatures/x.feature-4- When it renders\nsrc/app.ts:9: deck()";
+		expect(result(fake, "grep", { pattern: "deck" }, matches)).toEqual({
+			content: [{ type: "text", text: "src/app.ts:9: deck()\n\n[2 matching lines hidden: features/ is off limits]" }],
+		});
+	});
+
+	it("drops a search path of \"null\" so the tool searches the worktree root", () => {
+		const fake = start(skillPrompt("plan-issue"));
+		const input: Record<string, unknown> = { pattern: "src/**", path: "null" };
+		expect(call(fake, "find", input)).toBeUndefined();
+		expect(input).toEqual({ pattern: "src/**" });
+		const kept: Record<string, unknown> = { pattern: "x", path: "src" };
+		call(fake, "grep", kept);
+		expect(kept.path).toBe("src");
 	});
 
 	it("restores the policy from the branch on session_start", () => {

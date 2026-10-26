@@ -6,6 +6,7 @@ import {
 	checkSearch,
 	checkWrite,
 	hideDeniedEntries,
+	hideDeniedMatches,
 	OK,
 	type PathContext,
 	type PathRules,
@@ -131,8 +132,8 @@ export function evaluateToolCall(
 }
 
 /**
- * Hides entries inside the policy's deny roots from an `ls` or `find` result.
- * Returns the text unchanged for every other tool.
+ * Hides what lies inside the policy's deny roots from an `ls`, `find` or
+ * `grep` result. Returns the text unchanged for every other tool.
  */
 export function filterToolResult(
 	policy: SkillPolicy,
@@ -141,7 +142,20 @@ export function filterToolResult(
 	text: string,
 	context: PathContext,
 ): string {
-	if (policy.read === undefined || (toolName !== "ls" && toolName !== "find")) return text;
-	const listed = pathArgument(input, ".");
-	return listed === undefined ? text : hideDeniedEntries(text, listed, policy.read, context);
+	if (policy.read === undefined) return text;
+	const target = pathArgument(input, ".");
+	if (target === undefined) return text;
+	if (toolName === "grep") return hideDeniedMatches(text, target, policy.read, context);
+	if (toolName === "ls" || toolName === "find") return hideDeniedEntries(text, target, policy.read, context);
+	return text;
+}
+
+/**
+ * Models sometimes fill the search tools' optional `path` with "null" or "",
+ * which the tools then treat as a directory name. Drops it so the tool
+ * searches the worktree root, as it would without the argument.
+ */
+export function normalizeSearchInput(toolName: string, input: Record<string, unknown>): void {
+	if (!(SEARCH_TOOLS as readonly string[]).includes(toolName)) return;
+	if (input.path === null || input.path === "null" || input.path === "") delete input.path;
 }

@@ -1,3 +1,5 @@
+/** Recognising skill prompts; used by skill-path-guard, plan-issue, implement-tdd and write-scenarios. */
+
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 /** `/skill:<name>` expands to a prompt that starts with this block (pi `agent-session.js`, `_expandSkillCommand`). */
@@ -25,12 +27,4 @@ export function userText(entry: SessionEntry): string | undefined {
 	if (typeof content === "string") return content;
 	const first = content.find((part) => part.type === "text");
 	return first && first.type === "text" ? first.text : undefined;
-}
-
-/** The last skill prompt on the branch, if any: the skill a resumed session is running. */
-export function lastSkillPrompt(entries: readonly SessionEntry[]): SkillPrompt | undefined {
-	return entries.reduce<SkillPrompt | undefined>((current, entry) => {
-		const text = userText(entry);
-		return (text === undefined ? undefined : parseSkillPrompt(text)) ?? current;
-	}, undefined);
 }

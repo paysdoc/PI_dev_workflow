@@ -10,9 +10,9 @@ import {
 	containsRoot,
 	hideDeniedEntries,
 	hideDeniedMatches,
-	withinRoot,
-} from "../utils/pathPolicy";
-import { makeWorktree } from "./fakePi";
+} from "../pathPolicy";
+import { withinRoot } from "../../shared/worktreePaths";
+import { makeWorktree } from "../../shared/__tests__/fakePi";
 
 let cwd: string;
 let outside: string;

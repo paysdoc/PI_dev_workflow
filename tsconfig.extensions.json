@@ -10,15 +10,11 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    ".pi/extensions/skill-path-guard.ts",
-    ".pi/extensions/implement-tdd-report.ts",
-    ".pi/extensions/write-scenarios-report.ts",
-    ".pi/extensions/utils/skillSession.ts",
-    ".pi/extensions/utils/skillReport.ts",
-    ".pi/extensions/utils/skillPolicies.ts",
-    ".pi/extensions/utils/pathPolicy.ts",
-    ".pi/extensions/utils/gitCommandPolicy.ts",
-    ".pi/extensions/__tests__/**/*.ts"
+    ".pi/extensions/skill-path-guard/**/*.ts",
+    ".pi/extensions/plan-issue/**/*.ts",
+    ".pi/extensions/write-scenarios/**/*.ts",
+    ".pi/extensions/implement-tdd/**/*.ts",
+    ".pi/extensions/shared/**/*.ts"
   ],
   "exclude": [
     "node_modules"

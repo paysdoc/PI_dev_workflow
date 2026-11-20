@@ -4,7 +4,7 @@
  * The write-scenarios skill ends by calling `report_scenarios` instead of
  * printing raw JSON. The schema below is the single source of truth for the
  * report, and the orchestrator can use `ScenarioReport` as its type.
- * Activation, validation and reminders live in `utils/skillReport.ts`.
+ * Activation, validation and reminders live in `reportTool.ts`.
  *
  * The report carries nothing code can derive, so the model cannot get it wrong:
  *   - no "regression touched" flag: the orchestrator derives it from
@@ -19,7 +19,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
-import { registerSkillReport } from "./utils/skillReport";
+import { registerSkillReport } from "./reportTool";
 
 export const TOOL_NAME = "report_scenarios";
 const SKILL_NAME = "write-scenarios";

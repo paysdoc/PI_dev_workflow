@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
-import extension, { checkReport, type ImplementationReport, TOOL_NAME } from "../implement-tdd-report";
-import { fakeContext, fakePi, skillPrompt, toolResultEntry, userEntry } from "./fakePi";
+import extension, { checkReport, type ImplementationReport, TOOL_NAME } from "..";
+import { fakeContext, fakePi, skillPrompt, toolResultEntry, userEntry } from "../../shared/__tests__/fakePi";
 
-const slice = (overrides: Partial<ImplementationReport["slices"][number]> = {}) => ({
+type SliceInput = ImplementationReport["slices"][number];
+
+const slice = (overrides: Partial<SliceInput> = {}): SliceInput => ({
 	planTask: "Add parser",
 	finding: null,
 	scenario: null,
-	unitTest: "red-green" as const,
+	unitTest: "red-green",
 	reason: null,
+	scopeGaps: [],
+	observations: [],
 	...overrides,
 });
 
@@ -25,9 +29,14 @@ describe("checkReport", () => {
 		expect(checkReport({ tdd: true, slices: [slice({ unitTest: "blocked" })] })).toHaveLength(1);
 	});
 
-	it("ties skipped unit tests to tdd", () => {
+	it("requires skipped unit tests when tdd is off", () => {
 		expect(checkReport({ tdd: false, slices: [slice()] })).toHaveLength(1);
-		expect(checkReport({ tdd: true, slices: [slice({ unitTest: "skipped" })] })).toHaveLength(1);
+		expect(checkReport({ tdd: false, slices: [slice({ unitTest: "skipped" })] })).toEqual([]);
+	});
+
+	it("requires a reason for each scope gap", () => {
+		const gap = { file: "src/other.ts", why: " " };
+		expect(checkReport({ tdd: true, slices: [slice({ unitTest: "blocked", reason: "gap", scopeGaps: [gap] })] })).toHaveLength(1);
 	});
 
 	it("requires a described failure", () => {
@@ -61,18 +70,12 @@ describe("report tool lifecycle", () => {
 		expect(fake.activeTools()).toContain(TOOL_NAME);
 	});
 
-	it("reminds at most twice when no report arrives", () => {
+	it("reminds at most twice when the run ends without a report", () => {
 		const fake = setup();
 		startSkill(fake);
 		expect(settle(fake)).toMatchObject({ continue: true });
 		expect(settle(fake)).toMatchObject({ continue: true });
 		expect(settle(fake)).toBeUndefined();
-	});
-
-	it("does not remind outside the skill or after an aborted run", () => {
-		const fake = setup();
-		expect(settle(fake)).toBeUndefined();
-		startSkill(fake);
 		expect(fake.emit("agent_before_settle", { outcome: "aborted" })[0]).toBeUndefined();
 	});
 

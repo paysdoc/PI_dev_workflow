@@ -15,7 +15,9 @@ The request contains labelled values. Use them by label, never by position.
 - `issueNumber`: numeric issue number
 - `planPath`: path to the plan file
 - `scenarios` (optional): the scenarios this issue must satisfy, each with `file` and `scenario` (its name). Only the named scenarios are your spec, not the rest of their files. If absent, the spec is every scenario in the `.feature` files under the scenario directory tagged `@adw-{issueNumber}`.
-- `findings` (optional): a list of items, each with `source`, an optional `file`, and `detail`. They come from a validator that checked an earlier run. See **Findings**.
+- `findings` (optional): a JSON list of items, each with `source`, an optional `file`, and `detail`. They come from a validator that checked an earlier run. See **Findings**.
+- `unitTests` (optional): `true` or `false`. Unit tests are on unless it is `false`.
+- `commitFormat` (optional): the commit message format, with `{message}` standing for the messages below. Default: `{message}`.
 
 ## Read first
 
@@ -23,8 +25,7 @@ The request contains labelled values. Use them by label, never by position.
 2. `.adw/commands.md`: `## Run Tests` and `## Test Framework`.
 3. `.adw/coding_guidelines.md`: your code and tests must comply.
 4. `.adw/scenarios.md`: `## Scenario Directory` (default `features/`). This is the scenario directory.
-5. `.github/adw.yml`: unit tests are off only when an uncommented line sets `unitTests: false`. They are on if the file or the key is missing.
-6. The scenarios, plus the step definitions, DSL and drivers behind them, if any.
+5. The scenarios, plus the step definitions, DSL and drivers behind them, if any.
 
 You may read only the files above, any file the plan or a finding names, and the files you create.
 
@@ -34,7 +35,16 @@ You may read only the files above, any file the plan or a finding names, and the
 - Scenarios define *what* to build. The plan defines *where* and *how*. If a scenario has no step definitions or DSL behind it, its Gherkin text together with the plan is the spec, and its slice gets `reason: "no upstream DSL"`.
 - **Misalignment is a hard fail.** Stop at once if the plan and a scenario specify contradictory behaviour, or if no plan task implements a scenario. Write no more code and report `failed`.
 - Run only the unit tests you write. Do not run the full suite, the type checker or the linter.
-- Commit after each slice. Never push.
+- Commit after each slice, using `commitFormat`. Never push.
+
+## Scope
+
+Stay within the plan.
+
+- Change only the files in the plan's `### Files to Change` and `### New Files`, plus the `file` of a finding while you handle findings.
+- You may create a file the plan does not list, but only to hold code moved out of an in-scope file or code the current slice writes. Never copy code out of a file outside the scope.
+- If a slice cannot be built without changing a file outside the scope, the plan has a gap. Do not change the file. Stop the slice as if it could not reach GREEN (see **Slices**) and list the file in the slice's `scopeGaps`, saying which behaviour needs it.
+- Anything else you notice outside the scope, such as code that needs refactoring, is an observation: add it to the slice's `observations` and leave the file alone.
 
 ## Slices
 
@@ -45,10 +55,12 @@ For each slice:
 1. **RED**: Write a unit test for the slice's behaviour. Add the minimal export it needs so it compiles: the signature, throwing or returning a placeholder. Run the test and confirm it fails at an assertion. An import, compile or resolution error is not RED. Fix it and run the test again.
 2. If the test passes before you write any code, tighten it once so it asserts the new behaviour. If it still passes, mark the slice `passed-before-implementation` and carry on.
 3. **GREEN**: Write the minimal code that makes the test pass, then run it.
-4. **REFACTOR**: Clean up using [refactoring.md](refactoring.md). Rerun the test after each step, and never refactor while it is red.
+4. **REFACTOR**: Clean up the code this slice added or changed, using [refactoring.md](refactoring.md). Rerun the test after each step, and never refactor while it is red.
 5. **Commit** with the plan task as the message, plus ` (<scenario name>)` when the slice has a scenario.
 
 If a slice cannot reach GREEN within the plan's scope, keep its failing test. Commit it as `blocked: <plan task>`, mark the slice `blocked` with the reason, and move on to the next slice.
+
+If the plan marks a task `Tests: none`, do steps 3–5 without a test and mark the slice `unitTest: "skipped"`.
 
 If unit tests are off, do steps 3–5 without tests. Report `"tdd": false` and mark every slice's `unitTest` as `"skipped"`.
 
@@ -72,6 +84,8 @@ Finish by calling the `report_implementation` tool exactly once, after the last 
 
 - `slices`: one entry per slice, plan tasks first in plan order, then findings in the order given. Each slice sets exactly one of `planTask` and `finding`; the other is `null`.
 - `reason`: required for a `blocked` slice. Otherwise `"no upstream DSL"` or `null`.
+- `scopeGaps`: files outside the scope that the slice needed and you did not change. Empty otherwise.
+- `observations`: work outside the scope you noticed but did not do. Empty when none.
 - On a misalignment, set `failed` and list only the slices done so far.
 
 If the tool rejects the report, fix what the error names and call it again.

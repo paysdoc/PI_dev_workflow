@@ -12,9 +12,32 @@
  * in-process via `pi.on("tool_call", ...)`.
  */
 
+import * as fs from "fs";
 import * as path from "path";
 import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import { appendJsonLog, ensureSessionLogDir } from "./utils/constants";
+
+const LOG_ROOT = path.resolve(process.env.PI_PROJECT_LOG_DIR ?? path.join(process.cwd(), ".pi", "logs"));
+
+/** The log directory for the session id, created if missing; "unknown" when there is no id. */
+function ensureSessionLogDir(sessionId: string | undefined | null): string {
+	const safeId = (sessionId && String(sessionId).trim()) || "unknown";
+	const dir = path.join(LOG_ROOT, safeId.replace(/[^A-Za-z0-9._-]/g, "_"));
+	fs.mkdirSync(dir, { recursive: true });
+	return dir;
+}
+
+/** Appends an entry to a JSON-array log file, starting fresh if the file is missing or corrupt. */
+function appendJsonLog(logPath: string, entry: unknown): void {
+	let logData: unknown[] = [];
+	try {
+		const parsed = JSON.parse(fs.readFileSync(logPath, "utf-8"));
+		if (Array.isArray(parsed)) logData = parsed;
+	} catch {
+		logData = [];
+	}
+	logData.push(entry);
+	fs.writeFileSync(logPath, JSON.stringify(logData, null, 2));
+}
 
 // Tools whose input carries a file path we may need to rewrite / inspect.
 const FILE_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls"]);

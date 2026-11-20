@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import extension, { checkReport, type FeatureReader, type ScenarioReport, TOOL_NAME } from "../write-scenarios-report";
-import { fakeContext, fakePi, makeWorktree, skillPrompt } from "./fakePi";
+import extension, { checkReport, type FeatureReader, type ScenarioReport, TOOL_NAME } from "..";
+import { fakeContext, fakePi, makeWorktree, skillPrompt } from "../../shared/__tests__/fakePi";
 
 const FEATURE = [
 	"@adw-7",

@@ -2,7 +2,7 @@
  * Skill path guard
  *
  * Enforces each skill's read, write and bash limits deterministically, so the
- * skills' prompts do not have to. The policies live in `utils/skillPolicies.ts`.
+ * skills' prompts do not have to. The policies live in `policies.ts`.
  *
  * Scope: a policy applies from the moment a session's prompt is the expanded
  * `/skill:<name>` block of a skill in the table, and stays in force for later
@@ -30,8 +30,17 @@ import {
 	SEARCH_TOOLS,
 	SKILL_POLICIES,
 	type SkillPolicy,
-} from "./utils/skillPolicies";
-import { lastSkillPrompt, parseSkillPrompt, type SkillPrompt } from "./utils/skillSession";
+} from "./policies";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { parseSkillPrompt, type SkillPrompt, userText } from "../shared/skillSession";
+
+/** The last skill prompt on the branch, if any: the skill a resumed session is running. */
+function lastSkillPrompt(entries: readonly SessionEntry[]): SkillPrompt | undefined {
+	return entries.reduce<SkillPrompt | undefined>((current, entry) => {
+		const text = userText(entry);
+		return (text === undefined ? undefined : parseSkillPrompt(text)) ?? current;
+	}, undefined);
+}
 
 interface ActiveSkill {
 	readonly name: string;

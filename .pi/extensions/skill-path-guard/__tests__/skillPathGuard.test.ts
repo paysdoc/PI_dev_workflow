@@ -1,8 +1,8 @@
 import * as path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import extension from "../skill-path-guard";
-import { evaluateToolCall, SKILL_POLICIES, type SkillPolicy } from "../utils/skillPolicies";
-import { fakeContext, fakePi, makeWorktree, skillPrompt, userEntry } from "./fakePi";
+import extension from "..";
+import { evaluateToolCall, SKILL_POLICIES, type SkillPolicy } from "../policies";
+import { fakeContext, fakePi, makeWorktree, skillPrompt, userEntry } from "../../shared/__tests__/fakePi";
 
 let cwd: string;
 

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { checkPath, containsRoot, type PathContext, type PathRules, resolvePath, worktreeRelative } from "./pathPolicy";
+import { resolvePath, worktreeRelative } from "../shared/worktreePaths";
+import { checkPath, containsRoot, type PathContext, type PathRules } from "./pathPolicy";
 
 export interface GitRules {
 	/** Subcommands allowed as the second word, e.g. ["log", "show"]. Global git options are never allowed. */

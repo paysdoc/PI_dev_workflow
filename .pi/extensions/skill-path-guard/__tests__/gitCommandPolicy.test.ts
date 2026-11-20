@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { checkGitCommand, type GitRules } from "../utils/gitCommandPolicy";
-import { makeWorktree } from "./fakePi";
+import { checkGitCommand, type GitRules } from "../gitCommandPolicy";
+import { makeWorktree } from "../../shared/__tests__/fakePi";
 
 let cwd: string;
 

@@ -1,6 +1,6 @@
 /**
- * Shared machinery for a skill that ends by calling a report tool instead of
- * printing raw JSON. The schema is the single source of truth for the report:
+ * write-scenarios' report tool machinery (implement-tdd has its own copy).
+ * The skill ends by calling a report tool instead of printing raw JSON. The schema is the single source of truth for the report:
  *   - pi validates the arguments against it before `execute()` runs, and sends
  *     validation errors back to the model as a failed tool call, so the model
  *     retries in the same session;
@@ -17,7 +17,7 @@
 
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Static, TSchema } from "typebox";
-import { isSkillPrompt, userText } from "./skillSession";
+import { isSkillPrompt, userText } from "../shared/skillSession";
 
 export const DEFAULT_MAX_REMINDERS = 2;
 

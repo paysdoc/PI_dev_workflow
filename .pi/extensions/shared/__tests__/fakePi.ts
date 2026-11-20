@@ -18,7 +18,11 @@ export function fakePi(initialTools: readonly string[] = ["read", "bash", "edit"
 	const handlers = new Map<string, Handler[]>();
 	const tools = new Map<string, RegisteredTool>();
 	let active = [...initialTools];
+	const entries: { customType: string; data: unknown }[] = [];
 	const api = {
+		appendEntry(customType: string, data?: unknown) {
+			entries.push({ customType, data });
+		},
 		on(name: string, handler: Handler) {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
 		},
@@ -35,16 +39,19 @@ export function fakePi(initialTools: readonly string[] = ["read", "bash", "edit"
 		pi: api as unknown as ExtensionAPI,
 		tools,
 		activeTools: () => [...active],
+		/** Custom entries appended with `pi.appendEntry`, in order. */
+		entries,
 		/** Runs every handler for the event and returns their results in order. */
 		emit: (name: string, event: unknown, ctx: unknown = fakeContext()) =>
 			(handlers.get(name) ?? []).map((handler) => handler(event, ctx)),
 	};
 }
 
-export interface FakeEntry {
-	readonly type: "message";
-	readonly message: Record<string, unknown>;
-}
+export type FakeEntry =
+	| { readonly type: "message"; readonly message: Record<string, unknown> }
+	| { readonly type: "custom"; readonly customType: string; readonly data: unknown };
+
+export const customEntry = (customType: string, data: unknown): FakeEntry => ({ type: "custom", customType, data });
 
 export const userEntry = (content: string): FakeEntry => ({ type: "message", message: { role: "user", content } });
 

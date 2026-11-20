@@ -23,19 +23,28 @@ issueJson: `{issueJson}`
 Hypothesis (not verified by running anything): <the cause, citing file:line evidence>
 
 ## Relevant Files
-- `<path>`: <why it is relevant>
+- `<path>`: <why the tasks need to read it>
+
+### Files to Change
+- `<path>`: <what changes>
 
 ### New Files
 - `<path>`: <purpose>
 
 ## Step by Step Tasks
 ### 1. Write a test that reproduces the bug
-- <omit this task if unit tests are disabled>
+- <omit this task if unit tests are off>
+Files: none
+Tests: `<test path>`
 
 ### <n>. <task>
 - <bullets>
+Files: `<path>`, `<path>`
+Tests: `<test path>`
 
 ### <last>. Run the Validation Commands
+Files: none
+Tests: none: validation only
 
 ## Acceptance Criteria
 - <measurable outcome, including edge cases>
@@ -44,5 +53,8 @@ Hypothesis (not verified by running anything): <the cause, citing file:line evid
 - `<command>`
 
 ## Notes
-<optional; required for new dependencies>
+<optional>
+
+### Dependencies
+- `<package>`: `<install command>`
 ```
